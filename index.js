@@ -1,36 +1,8 @@
-/* for (var i = 1; i < 3; i++)
-{console.log(i);}
-
-for (d = 0; d < 6; d++)
-{
-    if (d % 2 == 0)
-    {
-        continue;
-    }
-    console.log(d + " то є непарне число.")
-}
-
-var myArray = ["What is the meaning of life?", "The meaning of life is", 42];
-
-for (e = 0; e < myArray.length; e++)
-{
-    console.log(myArray[e]);
-} */
-
-/*function greet(name)
-{
-    return ("Привіт, " + name + " !")
-}
-console.log(greet("Bob"));p*/
-/* for (var i = 1; i < 31; i = i + 1)
-{console.log(i + "-й крок" + " i = " + i);}
-for (var a = 1; a < 31; a = Math.pow(2, a - 1))
-{console.log(a + "a");} */
 var canvas = document.body.appendChild( document.createElement( 'canvas' ) ),
     context = canvas.getContext( '2d' );
 context.globalCompositeOperation = 'lighter';
-canvas.width = 1080;
-canvas.height = 1920;
+canvas.width = 1280;
+canvas.height = 800;
 draw();
 
 var textStrip = ['诶', '比', '西', '迪', '伊', '吉', '艾', '杰', '开', '哦', '屁', '提', '维'];
@@ -41,7 +13,7 @@ for (var i = 0; i < stripCount; i++) {
     stripX[i] = Math.floor(Math.random()*1265);
     stripY[i] = -100;
     dY[i] = Math.floor(Math.random()*7)+3;
-    stripFontSize[i] = Math.floor(Math.random()*16)+16;
+    stripFontSize[i] = Math.floor(Math.random()*16)+8;
 }
 
 var theColors = ['#cefbe4', '#81ec72', '#5cd646', '#54d13c', '#4ccc32', '#43c728'];
