@@ -80,47 +80,64 @@ async function encrypt(key, data) {
   return { package64 };
 }
 
-async function decrypt(key, receiverPackage64) {
-  const packageToBytes = Uint8Array.fromBase64(receiverPackage64);
+async function decrypt(password, package) {
+  // Decoding
+  const packageToBytes = Uint8Array.fromBase64(package);
   const receivedSaltArray = packageToBytes.slice(0, saltLength);
   const receivedTimestampArray = packageToBytes.slice(saltLength, saltLength + timestampLength);
   const receivedTimestamp = new TextDecoder().decode(receivedTimestampArray);
   const receivedIvArray = packageToBytes.slice(saltLength + timestampLength, saltLength + timestampLength + ivLength);
   const receivedCiphertextArray = packageToBytes.slice(saltLength + timestampLength + ivLength);
+  const rawPassword = new TextEncoder().encode(password);
   console.log("receivedSaltArray :", receivedSaltArray);
   console.log("receivedTimestamp :", receivedTimestamp);
   console.log("receivedIvArray :", receivedIvArray);
   console.log("receivedCiphertextArray :", receivedCiphertextArray);
+  console.log("Raw password :", rawPassword);
+  // Derive key
+  const receiverBaseKey = await importSecretKey(rawPassword);
+  const receiverSecretKey = await deriveSecretKey(receiverBaseKey, receivedSaltArray);
+  console.log(typeof receiverBaseKey," Receiver base key:", receiverBaseKey);
+  console.log(typeof receiverSecretKey," Receiver secret key:", receiverSecretKey);
+  try {
   const decryptedBuffer = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
       iv: receivedIvArray,
       additionalData: receivedTimestampArray
     },
-    key,
+    receiverSecretKey,
     receivedCiphertextArray,
-  );
-  const message = new TextDecoder().decode(decryptedBuffer);
-  const data = {
-    message,
-    receivedTimestamp
-  };
-  return data;
+    );
+    const message = new TextDecoder().decode(decryptedBuffer);
+    const decryptedData = {
+      message,
+      receivedTimestamp
+    };
+    return decryptedData;
+  } catch (e) {
+    console.log("Decryption failed with error: ", e);
+    return;
+  }
 }
 
 (async () => {
+  const data = "This is a secret message";
+  // Sender side
   const baseKey = await importSecretKey(rawPassword);
   console.log(typeof baseKey," Base key:", baseKey);
   const secretKey = await deriveSecretKey(baseKey, salt);
   console.log(typeof secretKey," Secret key:", secretKey);
-
-  const data = "This is a secret message";
-
   const { package64 } = await encrypt(secretKey, data);
-  const decrypted = await decrypt(secretKey, package64);
-
-  console.log("Decrypted message:", decrypted.message);
-  console.log("Timestamp:", decrypted.receivedTimestamp);
+  // Receiver side
+  try {
+    const decryptedData = await decrypt(password, package64);
+    console.log("Decrypted message:", decryptedData.message);
+    console.log("Timestamp:", decryptedData.receivedTimestamp);
+  } catch (e) {
+    console.log("Decryption failed with error: ", e);
+    return;
+  }
   /* const end = performance.now();
   console.log(end - start, " ms"); */
 })();
