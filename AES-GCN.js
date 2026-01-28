@@ -2,11 +2,64 @@ const timestampLength = 3;
 //const start = performance.now();
 const password = "12345678";
 const saltLength = 16;
-const salt = crypto.getRandomValues(new Uint8Array(saltLength));
-console.log("Salt :", salt);
 
 const rawPassword = new TextEncoder().encode(password);
 console.log("Raw password data :", rawPassword);
+
+// Check if local stareage is available
+function storageAvailable(type) {
+  let storage;
+  try {
+    storage = window[type];
+    const x = "__storage_test__";
+    storage.setItem(x, x);
+    storage.removeItem(x);
+    return true;
+  } catch (e) {
+    return (
+      e instanceof DOMException &&
+      e.name === "QuotaExceededError" &&
+      // acknowledge QuotaExceededError only if there's something already stored
+      storage &&
+      storage.length !== 0
+    );
+  }
+}
+
+// Form initial initialisation vector filled with zeros
+const ivLength = 12;
+var iv;
+var lastIV;
+
+// Function to increment the IV
+function incrementIV(buffer) {
+  for (let i = buffer.length - 1; i >= 0; i--) {
+    buffer[i]++;
+    if (buffer[i] !== 0) {
+      break;
+    }
+  }
+}
+
+var salt = crypto.getRandomValues(new Uint8Array(saltLength));
+
+if (storageAvailable("localStorage")) {
+  console.log("Yippee! We can use localStorage awesomeness");
+  if (localStorage.getItem("iv") !== null) {
+    lastIV = Uint8Array.fromBase64(localStorage.getItem("iv"));
+    console.log(typeof iv, "iv from local storage: ", lastIV);
+    iv = lastIV;
+  } else {
+    console.log("No iv in local storage");
+    iv = new Uint8Array(ivLength).fill(0);
+    var ivString = iv.toBase64();
+    console.log(typeof iv, "iv string: ", ivString);
+    localStorage.setItem("iv", ivString);
+    console.log("First iv :", iv, " stored in local storage.");
+  }
+} else {
+  console.log("Too bad, no localStorage for us");
+}
 
 function importSecretKey(rawKey) {
   return window.crypto.subtle.importKey("raw", rawKey, "PBKDF2", false, ["deriveKey"]
@@ -31,20 +84,6 @@ function deriveSecretKey(baseKey, salt) {
   );
 }
 
-// Form initial initialisation vector filled with zeros
-const ivLength = 12;
-var iv = (new Uint8Array(ivLength).fill(0));
-
-// Function to increment the IV
-function incrementIV(buffer) {
-  for (let i = buffer.length - 1; i >= 0; i--) {
-    buffer[i]++;
-    if (buffer[i] !== 0) {
-      break;
-    }
-  }
-}
-
 // Function to encrypt data
 async function encrypt(key, data) {
   const encoder = new TextEncoder();
@@ -54,6 +93,7 @@ async function encrypt(key, data) {
   console.log("Encryption Timestamp :", encryptionTimestamp);
   console.log("Encoded data :", encodedData);
   incrementIV(iv);
+  localStorage.setItem("iv", iv.toBase64());
   const ciphertext = await crypto.subtle.encrypt(
     {
       name: "AES-GCM",
@@ -76,7 +116,7 @@ async function encrypt(key, data) {
   package.set(ciphertextArray, saltLength + timestampLength + ivLength);
   console.log("package :", package);
   const package64 = package.toBase64();
-  console.log("package64 :", package64);  
+  console.log("package64 :", package64);
   return { package64 };
 }
 
