@@ -34,7 +34,7 @@ var lastIV;
 // Function to increment the IV
 function incrementIV(buffer) {
   for (let i = buffer.length - 1; i >= 0; i--) {
-    buffer[i]++;
+    buffer[i]= (buffer[i] + 1) % 256;
     if (buffer[i] !== 0) {
       break;
     }
@@ -47,11 +47,12 @@ if (storageAvailable("localStorage")) {
   console.log("Yippee! We can use localStorage awesomeness");
   if (localStorage.getItem("iv") !== null) {
     lastIV = Uint8Array.fromBase64(localStorage.getItem("iv"));
-    console.log(typeof iv, "iv from local storage: ", lastIV);
+    console.log(typeof lastIV, "iv from local storage: ", lastIV);
     iv = lastIV;
   } else {
     console.log("No iv in local storage");
-    iv = new Uint8Array(ivLength).fill(0);
+    //iv = new Uint8Array(ivLength).fill(0);
+    iv = crypto.getRandomValues(new Uint8Array(ivLength));
     var ivString = iv.toBase64();
     console.log(typeof iv, "iv string: ", ivString);
     localStorage.setItem("iv", ivString);
