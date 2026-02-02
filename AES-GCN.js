@@ -1,15 +1,14 @@
 const timestampLength = 3;
-//const start = performance.now();
-const password = "12345678";
-var salt;
-const saltLength = 16;
-let localStorageAvailable;
-const ivLength = 12;
-var iv;
-
+let password = prompt("Enter password");
+if (password === null || password.length === 0) {
+  console.log("Aborted");
+  throw new Error("No password provided");
+}
 const rawPassword = new TextEncoder().encode(password);
+password = "";
+const saltLength = 16;
+const ivLength = 12;
 
-// Check if local storage is available
 function storageAvailable(type) {
   let storage;
   try {
@@ -28,22 +27,29 @@ function storageAvailable(type) {
     );
   }
 }
-localStorageAvailable = storageAvailable("localStorage");
+let localStorageAvailable = storageAvailable("localStorage");
 
 function initializeStorage() {
+  let messageIv, salt, wrappingIv;
   if (localStorageAvailable) {
-      // Read or generate IV
-    if (localStorage.getItem("iv") !== null) {
-      iv = Uint8Array.fromBase64(localStorage.getItem("iv"));
-      console.log(typeof iv, "iv from local storage: ", iv);
+    if (localStorage.getItem("wrappingIv") !== null) {
+      wrappingIv = Uint8Array.fromBase64(localStorage.getItem("wrappingIv"));
+      console.log(typeof wrappingIv, "WrappingIv from local storage: ", wrappingIv, " is: ", wrappingIv.toString());
     } else {
-      console.log("No iv in local storage");
-      iv = crypto.getRandomValues(new Uint8Array(ivLength));
-      var ivString = iv.toBase64();
-      localStorage.setItem("iv", ivString);
-      console.log(typeof ivString, "First iv :", ivString, " stored in local storage.");
+      wrappingIv = crypto.getRandomValues(new Uint8Array(ivLength));
+      localStorage.setItem("wrappingIv", wrappingIv.toBase64());
+      console.log(typeof wrappingIv, "WrappingIv ", wrappingIv, " stored in local storage: ", wrappingIv.toString());
     }
-    // Read or generate salt
+    if (localStorage.getItem("messageIv") !== null) {
+      messageIv = Uint8Array.fromBase64(localStorage.getItem("messageIv"));
+      console.log(typeof messageIv, "MessageIv from local storage: ", messageIv, " is: ", messageIv.toString());
+    } else {
+      console.log("No messageIv in local storage");
+      messageIv = crypto.getRandomValues(new Uint8Array(ivLength));
+      var messageIvString = messageIv.toBase64();
+      localStorage.setItem("messageIv", messageIvString);
+      console.log(typeof messageIvString, "First messageIv :", messageIvString, " stored in local storage.");
+    }
     if (localStorage.getItem("salt") !== null) {
       salt = Uint8Array.fromBase64(localStorage.getItem("salt"));
       console.log(typeof salt, "Salt from local storage: ", salt);
@@ -54,60 +60,64 @@ function initializeStorage() {
       localStorage.setItem("salt", saltString);
       console.log(typeof saltString, "Salt :", saltString, " stored in local storage.");
     }
+    return { messageIv, salt, wrappingIv };
   }
 }
 
+async function getMasterKey(password) {
+  //const rawPassword = new TextEncoder().encode(password);
+  const mKey = await window.crypto.subtle.importKey("raw", rawPassword, "PBKDF2", false, ["deriveKey"]);
+  return mKey;
+}
+
+async function deriveWrappingKey(masterKey, salt) {
+  const wrappingKey = await window.crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: salt,
+      iterations: 100000,
+      hash: "SHA-256"
+    },
+    masterKey,
+    {
+      name: "AES-GCM",
+      length: 256,
+    },
+    true,
+    ["encrypt", "decrypt"],
+  );
+  return wrappingKey;
+}
+
 async function getKey() {
-  const baseKey = await window.crypto.subtle.importKey("raw", rawPassword, "PBKDF2", false, ["deriveKey"]);
-  console.log(typeof baseKey," Base key:", baseKey);
-  // Generate and export a random key
+  const masterKey = await getMasterKey(password);
+  const wrappingKey = await deriveWrappingKey(masterKey, salt);
+  console.log(typeof wrappingKey, "Wrapping key is: ", wrappingKey);
   if (localStorageAvailable) {
-    // Read or generate key
     if (localStorage.getItem("key") !== null) {
-      const secretKey = await window.crypto.subtle.deriveKey(
-        {
-          name: "PBKDF2",
-          salt: salt,
-          iterations: 100000,
-          hash: "SHA-256"
-        },
-        baseKey,
-        {
-          name: "AES-GCM",
-          length: 256,
-        },
-        true,
-        ["encrypt", "decrypt"],
-      );
-      console.log(typeof secretKey, "Secret key is: ", secretKey);
-      const importedKeyString = localStorage.getItem("key");
-      console.log(typeof importedKeyString, "Imported Key String is: ", importedKeyString);
-      const importedKeyBuffer = Uint8Array.fromBase64(importedKeyString);
-      console.log(typeof importedKeyBuffer, "Imported Key Buffer is: ", importedKeyBuffer);
-      const exportedSecretKey = await window.crypto.subtle.exportKey("raw", secretKey);
-      console.log(typeof exportedSecretKey, "Exported Imported key is: ", exportedSecretKey);
-      const exportedSeretKeyBuffer = new Uint8Array(exportedSecretKey);
-      console.log(typeof exportedSeretKeyBuffer, "Exported Imported key buffer is: ", exportedSeretKeyBuffer);
-      const exportedSecretKeyBufferFromStorage = Uint8Array.fromBase64(importedKeyString);
-      console.log(typeof exportedSecretKeyBufferFromStorage, "Exported Secret Key Buffer From Storage is: ", exportedSecretKeyBufferFromStorage);
-      const decryptBuffer = await crypto.subtle.decrypt(
-        {
-          name: "AES-GCM",
-          iv,
-        },
-        secretKey,
-        exportedSecretKeyBufferFromStorage,
-      );
-      console.log(typeof decryptBuffer, "Decrypted buffer is: ", decryptBuffer);
-      const decryptedKey = await window.crypto.subtle.importKey(
-        "raw",
-        decryptBuffer,
-        { name: "AES-GCM" },
-        true,
-        ["encrypt", "decrypt"],
-      );
-      console.log(typeof decryptedKey, "Decrypted Key is: ", decryptedKey);
-      return decryptedKey;
+      try {
+        const decryptBuffer = await crypto.subtle.decrypt(
+          {
+            name: "AES-GCM",
+            iv: wrappingIv,
+          },
+          wrappingKey,
+          Uint8Array.fromBase64(localStorage.getItem("key")),
+        );
+        console.log(typeof decryptBuffer, "Decrypted buffer is: ", decryptBuffer);
+        const decryptedKey = await window.crypto.subtle.importKey(
+          "raw",
+          decryptBuffer,
+          { name: "AES-GCM" },
+          true,
+          ["encrypt", "decrypt"],
+        );
+        console.log(typeof decryptedKey, "Decrypted Key is: ", decryptedKey);
+        return decryptedKey;
+      } catch (e) {
+        console.log("Decryption failed with error: ", e);
+        throw new Error("Wrong password");
+      }
     } else {
       const generatedKey = await window.crypto.subtle.generateKey(
         {
@@ -120,47 +130,24 @@ async function getKey() {
       console.log("No key in local storage so newely genegated random key is: ", typeof generatedKey, generatedKey);
       const exportedKey = await window.crypto.subtle.exportKey("raw", generatedKey);
       console.log(typeof exportedKey, "Exported Key is: ", exportedKey);
-      const exportedKeyBuffer = new Uint8Array(exportedKey);
-      console.log(typeof exportedKeyBuffer, "Exported Key Buffer is: ", exportedKeyBuffer);
-      const secretKey = await window.crypto.subtle.deriveKey(
-        {
-          name: "PBKDF2",
-          salt: salt,
-          iterations: 100000,
-          hash: "SHA-256"
-        },
-        baseKey,
+      const encryptedWrappingKey = await crypto.subtle.encrypt(
         {
           name: "AES-GCM",
-          length: 256,
+          iv: wrappingIv,
         },
-        true,
-        ["encrypt", "decrypt"],
+        wrappingKey,
+        new Uint8Array(exportedKey),
       );
-      console.log(typeof secretKey, "Secret key is: ", secretKey);
-      const encryptedSecretKey = await crypto.subtle.encrypt(
-        {
-          name: "AES-GCM",
-          iv,
-        },
-        secretKey,
-        exportedKeyBuffer,
-      );
-      console.log(typeof encryptedSecretKey, "Encrypted secret key is: ", encryptedSecretKey);
-      const encryptedSecretKeyBuffer = new Uint8Array(encryptedSecretKey);
-      console.log(typeof encryptedSecretKeyBuffer, "Exported encrypted key buffer is: ", encryptedSecretKeyBuffer);
-      const encryptedSecretKey64 = encryptedSecretKeyBuffer.toBase64();
-      console.log(typeof encryptedSecretKey64, "Exported encrypted key is: ", encryptedSecretKey64);
-      localStorage.setItem("key", encryptedSecretKey64);
-      console.log("Encrypted key was written to local storage.");
-      return secretKey;
+      const encryptedWrappedKey = new Uint8Array(encryptedWrappingKey).toBase64();
+      console.log(typeof encryptedWrappedKey, "Exported wrapped key is: ", encryptedWrappedKey, " written to local storage.");
+      localStorage.setItem("key", encryptedWrappedKey);
+      return generatedKey;
     }
   } else {
     console.log("Too bad, no local storage for us.");
   }
 }
 
-// Function to increment the IV
 function incrementIV(buffer) {
   for (let i = buffer.length - 1; i >= 0; i--) {
     buffer[i]= (buffer[i] + 1) % 256;
@@ -170,94 +157,57 @@ function incrementIV(buffer) {
   }
 }
 
-var salt = crypto.getRandomValues(new Uint8Array(saltLength));
+const { messageIv, salt, wrappingIv } = initializeStorage();
 
-function importBaseKey(rawKey) {
-  return window.crypto.subtle.importKey("raw", rawKey, "PBKDF2", false, ["deriveKey"]
-  );
-}
-
-function deriveSecretKey(baseKey, salt) {
-  return window.crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: salt,
-      iterations: 100000,
-      hash: "SHA-256"
-    },
-    baseKey,
-    {
-      name: "AES-GCM",
-      length: 256,
-    },
-    true,
-    ["encrypt", "decrypt"],
-  );
-}
-
-// Function to encrypt data
 async function encryptPackage(key, data) {
   const encoder = new TextEncoder();
   const encodedData = encoder.encode(data);
-  const encryptionTimestamp = performance.now().toString().slice(0,timestampLength);
+  console.log("Encoded data: ", encodedData);
+  const encryptionTimestamp = performance.now().toString().slice(0, timestampLength);
+  console.log("Encryption Timestamp: ", encryptionTimestamp);
   const additionalData = encoder.encode(encryptionTimestamp);
-  console.log("Encryption Timestamp :", encryptionTimestamp);
-  console.log("Encoded data :", encodedData);
-  /* incrementIV(iv);
-  localStorage.setItem("iv", iv.toBase64()); */
+  console.log(typeof additionalData, "Aditional data: ", additionalData);
+  incrementIV(messageIv);
+  localStorage.setItem("messageIv", messageIv.toBase64());
   const ciphertext = await crypto.subtle.encrypt(
     {
       name: "AES-GCM",
-      iv,
+      iv: messageIv,
       additionalData: additionalData
     },
     key,
     encodedData,
   );
-  const ivArray = new Uint8Array(iv);
-  console.log("ivArray :", ivArray);
-  const additionalDataArray = new Uint8Array(additionalData);
-  console.log("Additional Data :", additionalData);
+  console.log(typeof ciphertext, "Ciphered text: ", ciphertext);
   const ciphertextArray = new Uint8Array(ciphertext);
-  console.log("ciphertextArray :", ciphertextArray);
-  const package = new Uint8Array(saltLength + timestampLength + ivLength + ciphertextArray.length);
-  package.set(salt, 0);
-  package.set(additionalDataArray, saltLength);
-  package.set(ivArray, saltLength + timestampLength);
-  package.set(ciphertextArray, saltLength + timestampLength + ivLength);
+  console.log(typeof ciphertextArray, "CiphertextArray :", ciphertextArray);
+  const package = new Uint8Array(timestampLength + ivLength + ciphertextArray.length);
+  package.set(additionalData, 0);
+  package.set(messageIv, timestampLength);
+  package.set(ciphertextArray, timestampLength + ivLength);
   console.log("package :", package);
   const package64 = package.toBase64();
-  console.log("package64 :", package64);
+  console.log(typeof package64, "package64 :", package64);
   return { package64 };
 }
 
-async function decryptPackage(password, package) {
-  // Decoding
+async function decryptPackageWithKey(key, package) {
   const packageToBytes = Uint8Array.fromBase64(package);
-  const receivedSaltArray = packageToBytes.slice(0, saltLength);
-  const receivedTimestampArray = packageToBytes.slice(saltLength, saltLength + timestampLength);
+  const receivedTimestampArray = packageToBytes.slice(0, timestampLength);
   const receivedTimestamp = new TextDecoder().decode(receivedTimestampArray);
-  const receivedIvArray = packageToBytes.slice(saltLength + timestampLength, saltLength + timestampLength + ivLength);
-  const receivedCiphertextArray = packageToBytes.slice(saltLength + timestampLength + ivLength);
-  const rawPassword = new TextEncoder().encode(password);
-  console.log("receivedSaltArray :", receivedSaltArray);
+  const receivedMessageIvArray = packageToBytes.slice(timestampLength, timestampLength + ivLength);
+  const receivedCiphertextArray = packageToBytes.slice(timestampLength + ivLength);
   console.log("receivedTimestamp :", receivedTimestamp);
-  console.log("receivedIvArray :", receivedIvArray);
+  console.log("receivedMessageIvArray :", receivedMessageIvArray);
   console.log("receivedCiphertextArray :", receivedCiphertextArray);
-  console.log("Raw password :", rawPassword);
-  // Derive key
-  const receiverBaseKey = await importBaseKey(rawPassword);
-  const receiverSecretKey = await deriveSecretKey(receiverBaseKey, receivedSaltArray);
-  console.log(typeof receiverBaseKey," Receiver base key:", receiverBaseKey);
-  console.log(typeof receiverSecretKey," Receiver secret key:", receiverSecretKey);
   try {
   const decryptedBuffer = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
-      iv: receivedIvArray,
+      iv: receivedMessageIvArray,
       additionalData: receivedTimestampArray
     },
-    receiverSecretKey,
+    key,
     receivedCiphertextArray,
     );
     const message = new TextDecoder().decode(decryptedBuffer);
@@ -272,106 +222,15 @@ async function decryptPackage(password, package) {
   }
 }
 
-initializeStorage();
-
 (async () => {
-  // Sender side
-  const baseKey = await window.crypto.subtle.importKey("raw", rawPassword, "PBKDF2", false, ["deriveKey"]);
-  console.log(typeof baseKey," Base key:", baseKey);
-  const data = "This is a secret message";
-  const secretKey = await window.crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: salt,
-      iterations: 100000,
-      hash: "SHA-256"
-    },
-    baseKey,
-    {
-      name: "AES-GCM",
-      length: 256,
-    },
-    true,
-    ["encrypt", "decrypt"],
-  );
-  const { package64 } = await encryptPackage(secretKey, data);
-  // Receiver side
+  const data = "Hello world";
+  const sessionKey = await getKey();
+  const { package64: packageData } = await encryptPackage(sessionKey, data);
   try {
-    const decryptedData = await decryptPackage(password, package64);
-    console.log("Decrypted message:", decryptedData.message);
-    console.log("Timestamp:", decryptedData.receivedTimestamp);
+    const secondDecryptedData = await decryptPackageWithKey(sessionKey, packageData);
+    console.log(typeof secondDecryptedData.message, "Second decrypted message: ", secondDecryptedData.message);
   } catch (e) {
     console.log("Decryption failed with error: ", e);
     return;
-  }
-
-  const myKey = await getKey();
-  console.log(typeof myKey, "My key is: ", myKey);
-  const myBaseKey = await window.crypto.subtle.importKey("raw", rawPassword, "PBKDF2", false, ["deriveKey"]);
-  console.log(typeof myBaseKey," Base key:", myBaseKey);
-  const mysecretKey = await window.crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: salt,
-      iterations: 100000,
-      hash: "SHA-256"
-    },
-    myBaseKey,
-    {
-      name: "AES-GCM",
-      length: 256,
-    },
-    true,
-    ["encrypt", "decrypt"],
-  );
-  const exportedMyKey = await window.crypto.subtle.exportKey("raw", mysecretKey);
-  console.log(typeof exportedMyKey, "My exported key is: ", exportedMyKey);
-  const exportedMyKeyBuffer = new Uint8Array(exportedMyKey);
-  console.log(typeof exportedMyKeyBuffer, "My key buffer is: ", exportedMyKeyBuffer);
-  const exportedMyKeyBase64 = localStorage.getItem("key");
-  console.log(typeof exportedMyKeyBase64, "My exported key: ", exportedMyKeyBase64);
-  const exportedMyKeyBufferFromStorage = Uint8Array.fromBase64(exportedMyKeyBase64);
-  console.log(typeof exportedMyKeyBufferFromStorage, "My key buffer from storage is: ", exportedMyKeyBufferFromStorage);
-  // Decrypt the stored key
-  const myDecryptBuffer = await crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    mysecretKey,
-    exportedMyKeyBufferFromStorage,
-  );
-  console.log(typeof myDecryptBuffer, "My decrypted key buffer is: ", myDecryptBuffer);
-  const decryptedKey = await window.crypto.subtle.importKey(
-    "raw",
-    myDecryptBuffer,
-    { name: "AES-GCM" },
-    true,
-    ["encrypt", "decrypt"],
-  );
-  console.log(typeof decryptedKey, "Decrypted Key is: ", decryptedKey);
-  const exportedDecryptedMyKey = await window.crypto.subtle.exportKey("raw", decryptedKey);
-  console.log(typeof exportedDecryptedMyKey, "My exported key is: ", exportedDecryptedMyKey);
-  const myDecryptedKeyBuffer = new Uint8Array(exportedDecryptedMyKey);
-  console.log(typeof myDecryptedKeyBuffer, "Decrypted Key Buffer is: ", myDecryptedKeyBuffer);
-  const myKeyBase64 = myDecryptedKeyBuffer.toBase64();
-  console.log(typeof myKeyBase64, "My key base64 is: ", myKeyBase64);
-
-  // Encrypt the decrypted key again to veryfy my sanity
-/*   const encryptedSecretKey1 = await crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    secretKey,
-    myDecryptedKeyBuffer,
-  );
-  console.log(typeof encryptedSecretKey1, "Encrypted secret key is: ", encryptedSecretKey1);
-  const encryptedSecretKeyBuffer1 = new Uint8Array(encryptedSecretKey1);
-  console.log(typeof encryptedSecretKeyBuffer1, "Exported encrypted key buffer is: ", encryptedSecretKeyBuffer1);
-  const encryptedSecretKey641 = encryptedSecretKeyBuffer1.toBase64();
-  console.log(typeof encryptedSecretKey641, "Exported encrypted key is: ", encryptedSecretKey641); */
-
-  /* const end = performance.now();
-  console.log(end - start, " ms"); */
+  }  
 })();
