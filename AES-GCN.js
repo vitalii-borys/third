@@ -1,10 +1,10 @@
-let userPassword = prompt("Enter password");
+/* let userPassword = prompt("Enter password");
 if (userPassword === null || userPassword.length === 0) {
   console.log("Aborted");
   throw new Error("No password provided");
-}
-//let userPassword = "12345678";
-const timestampLength = 3;
+} */
+let userPassword = "555";
+const timestampLength = 8;
 const saltLength = 16;
 const ivLength = 12;
 
@@ -16,22 +16,33 @@ class CryptoVault {
   #localStorageAvailable;
 
   constructor() {
-    this.#localStorageAvailable = this.storageAvailable("localStorage");
+    this.#localStorageAvailable = CryptoVault.storageAvailable("localStorage");
   }
   
   async load() {
     this.#sessionKey = await this.#getKey();
     return this;
   }
+
+  #bigintToUint8Buffer (bigInt) {
+    let dv = new DataView(new ArrayBuffer(8), 0);
+    dv.setBigUint64(0, bigInt);
+    let uArr = new Uint8Array(dv.buffer);
+    return uArr;
+  }
+
+  #uint8ArrayToBigint (bigIntBuffer) {
+    let dv = new DataView(bigIntBuffer.buffer, 0);
+    let myBigInt = dv.getBigUint64();
+    return myBigInt;
+  }
   
   async encryptPackage(data) {
     const encoder = new TextEncoder();
     const encodedData = encoder.encode(data);
     console.log("Encoded data: ", encodedData.toString());
-    const encryptionTimestamp = performance.now().toString().slice(0, timestampLength);
-    console.log("Encryption Timestamp: ", encryptionTimestamp);
-    const additionalData = encoder.encode(encryptionTimestamp);
-    console.log("Aditional data: ", additionalData.toString());
+    const additionalData = this.#bigintToUint8Buffer(BigInt(Date.now()));
+    console.log("Aditional data: ", additionalData);
     this.#incrementIV(this.#messageIv);
     localStorage.setItem("messageIv", this.#messageIv.toBase64());
     const ciphertext = await crypto.subtle.encrypt(
@@ -59,7 +70,7 @@ class CryptoVault {
   async decryptPackage(packageData) {
     const packageToBytes = Uint8Array.fromBase64(packageData);
     const receivedTimestampArray = packageToBytes.slice(0, timestampLength);
-    const receivedTimestamp = new TextDecoder().decode(receivedTimestampArray);
+    const receivedTimestamp = this.#uint8ArrayToBigint(receivedTimestampArray);
     const receivedMessageIvArray = packageToBytes.slice(timestampLength, timestampLength + ivLength);
     const receivedCiphertextArray = packageToBytes.slice(timestampLength + ivLength);
     console.log("receivedTimestamp :", receivedTimestamp);
@@ -208,11 +219,10 @@ class CryptoVault {
         localStorage.setItem("salt", saltString);
         console.log("Salt :", saltString, " stored in local storage.");
       }
-      return { messageIv: this.#messageIv, salt: this.#salt, wrappingIv:this.#wrappingIv };
     }
   }
   
-  storageAvailable(type) {
+  static storageAvailable(type) {
     let storage;
     try {
       storage = window[type];
@@ -224,7 +234,6 @@ class CryptoVault {
       return (
         e instanceof DOMException &&
         e.name === "QuotaExceededError" &&
-        // acknowledge QuotaExceededError only if there's something already stored
         storage &&
         storage.length !== 0
       );
@@ -241,7 +250,6 @@ class CryptoVault {
   }
 }
 
-
 (async () => {
   const data = "Hello world";
   const sessionCryptoVault = await new CryptoVault().load();
@@ -249,7 +257,8 @@ class CryptoVault {
 
   try {
     const decryptedData = await sessionCryptoVault.decryptPackage(packageData);
-    console.log(typeof decryptedData.message, "Decrypted message: ", decryptedData.message);
+    console.log("Decrypted message: ", decryptedData.message,
+      "Received time: ", new Date(Number(decryptedData.receivedTimestamp)));
   } catch (e) {
     console.log("Decryption failed with error: ", e);
     return;
