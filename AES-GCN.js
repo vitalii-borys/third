@@ -1,12 +1,28 @@
-/* let userPassword = prompt("Enter password");
+let userPassword = prompt("Enter password");
 if (userPassword === null || userPassword.length === 0) {
   console.log("Aborted");
   throw new Error("No password provided");
-} */
-let userPassword = "555";
+}
+//let userPassword = "555";
 const timestampLength = 8;
 const saltLength = 16;
 const ivLength = 12;
+
+const userInput = document.createElement('input');
+const userMessages = document.createElement('div');
+const saveButton = document.createElement('button');
+const decryptButton = document.createElement('button');
+userInput.style.fontSize = '25px';
+userInput.id = 'user_input';
+userInput.style.width = '80vw';
+saveButton.style.fontSize = '25px';
+saveButton.style.width = '19vw';
+saveButton.textContent = 'Save';
+decryptButton.style.fontSize = '25px';
+decryptButton.style.width = '19vw';
+decryptButton.textContent = 'Decrypt';
+const bodyPage = document.body;
+bodyPage.append(userInput, saveButton, userMessages, decryptButton);
 
 class CryptoVault {
   #wrappingIv;
@@ -14,13 +30,32 @@ class CryptoVault {
   #salt;
   #sessionKey;
   #localStorageAvailable;
+  #encryptedPackages
 
   constructor() {
     this.#localStorageAvailable = CryptoVault.storageAvailable("localStorage");
   }
   
-  async load() {
+  async loadAndEncrypt(userInput) {
     this.#sessionKey = await this.#getKey();
+    const { package64: packageData } = await this.encryptPackage(userInput);
+    this.#encryptedPackages.messages.push({id: this.#encryptedPackages.messages[this.#encryptedPackages.messages.length - 1].id + 1, text: packageData})
+    localStorage.setItem("encryptedPackages", JSON.stringify({messages: this.#encryptedPackages.messages}));
+    return this;
+  }
+
+  async loadAndDecrypt() {
+    this.#sessionKey = await this.#getKey();
+    userMessages.innerHTML = "";
+    for (let i = 1; i < this.#encryptedPackages.messages.length; i++) {
+      let decryptedData = await this.decryptPackage(this.#encryptedPackages.messages[i].text);
+      console.log("Decrypted message: ", decryptedData.message,
+        "Received time: ", new Date(Number(decryptedData.receivedTimestamp)));
+      let messagediv = document.createElement('div');
+      messagediv.style.fontSize = '24px';
+      messagediv.textContent = decryptedData.message + " " + new Date(Number(decryptedData.receivedTimestamp));
+      userMessages.append(messagediv);
+    }
     return this;
   }
 
@@ -40,9 +75,7 @@ class CryptoVault {
   async encryptPackage(data) {
     const encoder = new TextEncoder();
     const encodedData = encoder.encode(data);
-    console.log("Encoded data: ", encodedData.toString());
     const additionalData = this.#bigintToUint8Buffer(BigInt(Date.now()));
-    console.log("Aditional data: ", additionalData);
     this.#incrementIV(this.#messageIv);
     localStorage.setItem("messageIv", this.#messageIv.toBase64());
     const ciphertext = await crypto.subtle.encrypt(
@@ -54,14 +87,11 @@ class CryptoVault {
       this.#sessionKey,
       encodedData,
     );
-    console.log("Ciphered text: ", ciphertext);
     const ciphertextArray = new Uint8Array(ciphertext);
-    console.log("CiphertextArray :", ciphertextArray.toString());
     const packageData = new Uint8Array(timestampLength + ivLength + ciphertextArray.length);
     packageData.set(additionalData, 0);
     packageData.set(this.#messageIv, timestampLength);
     packageData.set(ciphertextArray, timestampLength + ivLength);
-    console.log("packageData :", packageData.toString());
     const package64 = packageData.toBase64();
     console.log("package64 :", package64.toString());
     return { package64 };
@@ -73,9 +103,6 @@ class CryptoVault {
     const receivedTimestamp = this.#uint8ArrayToBigint(receivedTimestampArray);
     const receivedMessageIvArray = packageToBytes.slice(timestampLength, timestampLength + ivLength);
     const receivedCiphertextArray = packageToBytes.slice(timestampLength + ivLength);
-    console.log("receivedTimestamp :", receivedTimestamp);
-    console.log("receivedMessageIvArray :", receivedMessageIvArray.toString());
-    console.log("receivedCiphertextArray :", receivedCiphertextArray.toString());
     try {
     const decryptedBuffer = await crypto.subtle.decrypt(
       {
@@ -125,7 +152,7 @@ class CryptoVault {
   async #getKey() {
     this.#initializeStorage();
     var rawPassword = new TextEncoder().encode(userPassword);
-    userPassword = "";
+    //userPassword = "";
     const masterKey = await this.getMasterKey(rawPassword);
     rawPassword = null;
     const wrappingKey = await this.deriveWrappingKey(masterKey, this.#salt);
@@ -141,7 +168,6 @@ class CryptoVault {
             wrappingKey,
             Uint8Array.fromBase64(localStorage.getItem("key")),
           );
-          console.log("Decrypted buffer is: ", decryptBuffer);
           const decryptedKey = await window.crypto.subtle.importKey(
             "raw",
             decryptBuffer,
@@ -149,7 +175,6 @@ class CryptoVault {
             true,
             ["encrypt", "decrypt"],
           );
-          console.log(typeof decryptedKey, "Decrypted Key is: ", decryptedKey);
           return decryptedKey;
         } catch (e) {
           console.log("Decryption failed with error: ", e);
@@ -186,8 +211,15 @@ class CryptoVault {
   }
 
   #initializeStorage() {
-    //let messageIv, salt, wrappingIv;
     if (this.#localStorageAvailable) {
+      if (localStorage.getItem("encryptedPackages") !== null) {
+        this.#encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
+        console.log("Encrypted packages from local storage: ", this.#encryptedPackages);
+      } else {
+        localStorage.setItem("encryptedPackages", JSON.stringify({messages: [{id: 0, text: ""}]}));
+        this.#encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
+        console.log("No encrypted packages in local storage: ", this.#encryptedPackages, " created.");
+      }
       if (localStorage.getItem("wrappingIv") !== null) {
         this.#wrappingIv = Uint8Array.fromBase64(localStorage.getItem("wrappingIv"));
         console.log("WrappingIv from local storage is: ", this.#wrappingIv.toString());
@@ -250,17 +282,23 @@ class CryptoVault {
   }
 }
 
-(async () => {
-  const data = "Hello world";
-  const sessionCryptoVault = await new CryptoVault().load();
-  const { package64: packageData } = await sessionCryptoVault.encryptPackage(data);
+saveButton.addEventListener('click', async () => {
+  const data = userInput.value;
+  saveButton.disabled = true;
+  let sessionCryptoVault = await new CryptoVault().loadAndEncrypt(data);
+  saveButton.disabled = false;
+  sessionCryptoVault = null;
+  userInput.value = "";
+});
 
+decryptButton.addEventListener('click', async () => {
   try {
-    const decryptedData = await sessionCryptoVault.decryptPackage(packageData);
-    console.log("Decrypted message: ", decryptedData.message,
-      "Received time: ", new Date(Number(decryptedData.receivedTimestamp)));
+    decryptButton.disabled = true;
+    let sessionCryptoVault = await new CryptoVault().loadAndDecrypt();
+    decryptButton.disabled = false;
+    sessionCryptoVault = null;
   } catch (e) {
     console.log("Decryption failed with error: ", e);
     return;
-  }  
-})();
+  }
+});
