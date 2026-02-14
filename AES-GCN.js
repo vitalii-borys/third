@@ -1,8 +1,8 @@
-let userPassword = prompt("Enter password");
+/* let userPassword = prompt("Enter password");
 if (userPassword === null || userPassword.length === 0) {
   console.log("Aborted");
   throw new Error("No password provided");
-}
+} */
 //let userPassword = "555";
 const timestampLength = 8;
 const saltLength = 16;
@@ -47,9 +47,14 @@ class CryptoVault {
     this.#localStorageAvailable = CryptoVault.storageAvailable("localStorage");
   }
   
-  load() {
-    this.#initializeStorage();
-    return this.#encryptedPackages;
+  async load() {
+    let userPassword = prompt("Enter password");
+    if (userPassword === null || userPassword.length === 0) {
+      console.log("Aborted");
+      throw new Error("No password provided");
+    }
+    this.#sessionKey = await this.#getKey(userPassword);
+    return this;
   }
 
   getBackupData () {
@@ -64,8 +69,7 @@ class CryptoVault {
     return backupJSON;
   }
 
-  async loadAndEncrypt(userInput) {
-    this.#sessionKey = await this.#getKey();
+  async encryptAndStore(userInput) {
     const { package64: packageData } = await this.encryptPackage(userInput);
     this.#encryptedPackages.messages.push({id: this.#encryptedPackages.messages[this.#encryptedPackages.messages.length - 1].id + 1, text: packageData})
     localStorage.setItem("encryptedPackages", JSON.stringify({messages: this.#encryptedPackages.messages}));
@@ -73,7 +77,6 @@ class CryptoVault {
   }
 
   async loadAndDecrypt() {
-    this.#sessionKey = await this.#getKey();
     userMessages.innerHTML = "";
     for (let i = 1; i < this.#encryptedPackages.messages.length; i++) {
       let decryptedData = await this.decryptPackage(this.#encryptedPackages.messages[i].text);
@@ -177,10 +180,10 @@ class CryptoVault {
     return wrappingKey;
   }
 
-  async #getKey() {
+  async #getKey(userPassword) {
     this.#initializeStorage();
     var rawPassword = new TextEncoder().encode(userPassword);
-    //userPassword = "";
+    userPassword = "";
     const masterKey = await this.getMasterKey(rawPassword);
     rawPassword = null;
     const wrappingKey = await this.deriveWrappingKey(masterKey, this.#salt);
@@ -310,10 +313,26 @@ class CryptoVault {
   }
 }
 
+decryptButton.disabled = true;
+backupButton.disabled = true;
+saveButton.disabled = true;
+let sessionVault = new CryptoVault();
+(async () => {
+  try {
+    await sessionVault.load();
+    decryptButton.disabled = false;
+    backupButton.disabled = false;
+    saveButton.disabled = false;
+    return sessionVault;
+  } catch (e) {
+    console.log("Loading failed with error: ", e);
+  }
+})();
+
 saveButton.addEventListener('click', async () => {
-  const data = userInput.value;
   saveButton.disabled = true;
-  await new CryptoVault().loadAndEncrypt(data);
+  const data = userInput.value;
+  await sessionVault.encryptAndStore(data);
   saveButton.disabled = false;
   userInput.value = "";
 });
@@ -321,7 +340,7 @@ saveButton.addEventListener('click', async () => {
 decryptButton.addEventListener('click', async () => {
   try {
     decryptButton.disabled = true;
-    await new CryptoVault().loadAndDecrypt();
+    await sessionVault.loadAndDecrypt();
     decryptButton.disabled = false;
   } catch (e) {
     console.log("Decryption failed with error: ", e);
@@ -331,7 +350,7 @@ decryptButton.addEventListener('click', async () => {
 
 backupButton.addEventListener('click', async () => {
   backupButton.disabled = true;
-  const backupPackegesJSON = await new CryptoVault().getBackupData();
+  const backupPackegesJSON = await sessionVault.getBackupData();
   console.log(typeof backupPackegesJSON, backupPackegesJSON);
   const packages = JSON.stringify(backupPackegesJSON);
   const packagesBlob = new Blob([packages], { type: "application/json" });
@@ -344,15 +363,12 @@ backupButton.addEventListener('click', async () => {
   backupLink.href = backupURL;
   backupLink.download = "Backup.json";
   document.body.appendChild(backupLink);
-  /* backupLink.addEventListener('click', () => {
-    backupLink.style.display = 'none';
-    setTimeout(() => {
-      URL.revokeObjectURL(backupURL);
-      backupLink.remove();
-    }, 1000);
-  }); */
+  backupLink.style.display = 'none';
   backupLink.click();
-  document.body.removeChild(backupLink);
+  setTimeout(() => {
+    URL.revokeObjectURL(backupURL);
+    document.body.removeChild(backupLink);
+  }, 500);
 });
 
 uploadBackupButton.addEventListener("click", () => {
@@ -366,6 +382,14 @@ uploadBackupButton.addEventListener("click", () => {
     localStorage.setItem("messageIv", myImportedJSON.messageIV);
     localStorage.setItem("salt", myImportedJSON.salt);
     localStorage.setItem("wrappingIv", myImportedJSON.wrappingIv);
+    (async () => {
+      try {
+        await sessionVault.load();
+      } catch (e) {
+        console.log("Loading failed with error: ", e);
+      }
+    })();
   };
   reader.readAsText(file);
+  console.log(typeof sessionVault, sessionVault);
 });
