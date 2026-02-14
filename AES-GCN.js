@@ -12,6 +12,11 @@ const userInput = document.createElement('input');
 const userMessages = document.createElement('div');
 const saveButton = document.createElement('button');
 const decryptButton = document.createElement('button');
+const backupButton = document.createElement('button');
+const uploadBackupButton = document.createElement('button');
+const fileUpload = document.createElement('input');
+fileUpload.type = 'file';
+fileUpload.accept = 'application/json';
 userInput.style.fontSize = '25px';
 userInput.id = 'user_input';
 userInput.style.width = '80vw';
@@ -21,8 +26,14 @@ saveButton.textContent = 'Save';
 decryptButton.style.fontSize = '25px';
 decryptButton.style.width = '19vw';
 decryptButton.textContent = 'Decrypt';
+backupButton.textContent = 'Get backup link';
+backupButton.style.width = '19vw';
+backupButton.style.fontSize = '20px';
+uploadBackupButton.textContent = 'Upload';
+uploadBackupButton.style.width = '19vw';
+uploadBackupButton.style.fontSize = '20px';
 const bodyPage = document.body;
-bodyPage.append(userInput, saveButton, userMessages, decryptButton);
+bodyPage.append(userInput, saveButton, userMessages, decryptButton, backupButton, uploadBackupButton, fileUpload);
 
 class CryptoVault {
   #wrappingIv;
@@ -36,6 +47,23 @@ class CryptoVault {
     this.#localStorageAvailable = CryptoVault.storageAvailable("localStorage");
   }
   
+  load() {
+    this.#initializeStorage();
+    return this.#encryptedPackages;
+  }
+
+  getBackupData () {
+    this.#initializeStorage();
+    const backupJSON = {
+      "encryptedPackages": this.#encryptedPackages,
+      "key": localStorage.getItem("key"),
+      "messageIV": localStorage.getItem("messageIv"),
+      "salt": localStorage.getItem("salt"),
+      "wrappingIv": localStorage.getItem("wrappingIv")
+    };
+    return backupJSON;
+  }
+
   async loadAndEncrypt(userInput) {
     this.#sessionKey = await this.#getKey();
     const { package64: packageData } = await this.encryptPackage(userInput);
@@ -285,20 +313,59 @@ class CryptoVault {
 saveButton.addEventListener('click', async () => {
   const data = userInput.value;
   saveButton.disabled = true;
-  let sessionCryptoVault = await new CryptoVault().loadAndEncrypt(data);
+  await new CryptoVault().loadAndEncrypt(data);
   saveButton.disabled = false;
-  sessionCryptoVault = null;
   userInput.value = "";
 });
 
 decryptButton.addEventListener('click', async () => {
   try {
     decryptButton.disabled = true;
-    let sessionCryptoVault = await new CryptoVault().loadAndDecrypt();
+    await new CryptoVault().loadAndDecrypt();
     decryptButton.disabled = false;
-    sessionCryptoVault = null;
   } catch (e) {
     console.log("Decryption failed with error: ", e);
     return;
   }
+});
+
+backupButton.addEventListener('click', async () => {
+  backupButton.disabled = true;
+  const backupPackegesJSON = await new CryptoVault().getBackupData();
+  console.log(typeof backupPackegesJSON, backupPackegesJSON);
+  const packages = JSON.stringify(backupPackegesJSON);
+  const packagesBlob = new Blob([packages], { type: "application/json" });
+  const backupURL = URL.createObjectURL(packagesBlob);
+  backupButton.disabled = false;
+  const backupLink = document.createElement('a');
+  backupLink.textContent = "Download Backup";
+  backupLink.target = "_blank";
+  backupLink.rel = "noopener noreferrer";
+  backupLink.href = backupURL;
+  backupLink.download = "Backup.json";
+  document.body.appendChild(backupLink);
+  /* backupLink.addEventListener('click', () => {
+    backupLink.style.display = 'none';
+    setTimeout(() => {
+      URL.revokeObjectURL(backupURL);
+      backupLink.remove();
+    }, 1000);
+  }); */
+  backupLink.click();
+  document.body.removeChild(backupLink);
+});
+
+uploadBackupButton.addEventListener("click", () => {
+  const file = fileUpload.files[0];
+  let myImportedJSON;
+  const reader = new FileReader();
+  reader.onload = function() {
+    myImportedJSON = JSON.parse(reader.result);
+    localStorage.setItem("encryptedPackages", JSON.stringify(myImportedJSON.encryptedPackages));
+    localStorage.setItem("key", myImportedJSON.key);
+    localStorage.setItem("messageIv", myImportedJSON.messageIV);
+    localStorage.setItem("salt", myImportedJSON.salt);
+    localStorage.setItem("wrappingIv", myImportedJSON.wrappingIv);
+  };
+  reader.readAsText(file);
 });
