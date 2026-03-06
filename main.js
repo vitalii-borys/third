@@ -1,8 +1,3 @@
-/* let userPassword = prompt("Enter password");
-if (userPassword === null || userPassword.length === 0) {
-  console.log("Aborted");
-  throw new Error("No password provided");
-} */
 //let userPassword = "555";
 const timestampLength = 8;
 const saltLength = 16;
@@ -41,17 +36,32 @@ class CryptoVault {
   #salt;
   #sessionKey;
   #localStorageAvailable;
-  #encryptedPackages
+  #publicKey;
+  #privateKey;
+  #wrappingKey;
+  #sessionStorageAvailable;
+  #encryptedPackages;
 
   constructor() {
     this.#localStorageAvailable = CryptoVault.storageAvailable("localStorage");
+    this.#sessionStorageAvailable = CryptoVault.storageAvailable("sessionStorage");
   }
   
   async load() {
-    let userPassword = prompt("Enter password");
-    if (userPassword === null || userPassword.length === 0) {
-      console.log("Aborted");
-      throw new Error("No password provided");
+    let userPassword;
+    if (this.#sessionStorageAvailable) {
+      if (sessionStorage.getItem("password") !== null) {
+        userPassword = sessionStorage.getItem("password");
+      } else {
+        userPassword = prompt("Enter password");
+          if (userPassword === null || userPassword.length === 0) {
+            console.log("Aborted");
+            throw new Error("No password provided");
+          }
+        sessionStorage.setItem("password", userPassword);
+      }
+    } else {
+      console.log("No session storage available.")
     }
     this.#sessionKey = await this.#getKey(userPassword);
     return this;
@@ -61,7 +71,7 @@ class CryptoVault {
     this.#initializeStorage();
     const backupJSON = {
       "encryptedPackages": this.#encryptedPackages,
-      "key": localStorage.getItem("key"),
+      "publicKey": localStorage.getItem("publicKey"),
       "messageIV": localStorage.getItem("messageIv"),
       "salt": localStorage.getItem("salt"),
       "wrappingIv": localStorage.getItem("wrappingIv")
@@ -177,9 +187,10 @@ class CryptoVault {
       true,
       ["encrypt", "decrypt"],
     );
+    this.#wrappingKey = wrappingKey;
     return wrappingKey;
   }
-
+  
   async #getKey(userPassword) {
     this.#initializeStorage();
     var rawPassword = new TextEncoder().encode(userPassword);
@@ -238,6 +249,113 @@ class CryptoVault {
       }
     } else {
       console.log("Too bad, no local storage for us.");
+    }
+  }
+
+  async #generateKeyPair() {
+    const keyPair = window.crypto.subtle.generateKey(
+      {
+      name: "RSA-OAEP",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+      },
+      true,
+      ["encrypt", "decrypt"]
+    )
+    return keyPair;
+  }
+
+  async encryptAndStoreSessionKey() {
+    if (this.#localStorageAvailable) {
+      if (localStorage.getItem("encryptedSessionKey") !== null && localStorage.getItem("encryptedPrivateKey") !== null && localStorage.getItem("publicKey") !== null) {
+        const publicKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("publicKey"));
+        const publicKey = await crypto.subtle.importKey(
+          "spki",
+          publicKeyBuffer,
+          { name: "RSA-OAEP", hash: "SHA-256" },
+          true,
+          ["encrypt"]
+        );
+        this.#publicKey = publicKey;
+        console.log("Public key from local storage is:", this.#publicKey);
+        const privateKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedPrivateKey"));
+        let decryptedPrivateKey;
+        try {
+          decryptedPrivateKey = await crypto.subtle.decrypt(
+            {
+              name: "AES-GCM",
+              iv: this.#wrappingIv
+            },
+            this.#wrappingKey,
+            privateKeyBuffer
+          );
+        } catch (e) {
+          console.log("Decryption failed with error: ", e);
+          throw new Error("Wrong password");
+        }
+        const privateKey = await window.crypto.subtle.importKey(
+            "pkcs8",
+            decryptedPrivateKey,
+            { name: "RSA-OAEP", hash: "SHA-256" },
+            true,
+            ["decrypt"],
+          );
+        this.#privateKey = privateKey;
+        console.log("Private key from local storage is:", this.#privateKey);
+        const ciphertext = Uint8Array.fromBase64(localStorage.getItem("encryptedSessionKey"));
+        let decryptedSessionKey;
+        try {
+          decryptedSessionKey = await crypto.subtle.decrypt(
+            {
+              name: "RSA-OAEP",
+            },
+            privateKey,
+            ciphertext
+          );
+        } catch (e) {
+          console.log("Decryption failed with error: ", e);
+          throw new Error("Wrong password");
+        }
+        const sessionKey = await window.crypto.subtle.importKey(
+          "raw",
+          decryptedSessionKey,
+          { name: "AES-GCM" },
+          true,
+          ["encrypt", "decrypt"],
+        );
+        this.#sessionKey = sessionKey;
+        console.log("sessionKey from local storage is:", this.#sessionKey);
+      } else {
+        const keyPair = this.#generateKeyPair();
+        const publicKey = (await keyPair).publicKey;
+        const exportedPublicKey = await crypto.subtle.exportKey("spki", publicKey);
+        localStorage.setItem("publicKey", new Uint8Array(exportedPublicKey).toBase64())
+        const privateKey = (await keyPair).privateKey;
+        console.log("No key pair in local storage so newely generated keys are: ", publicKey, privateKey);
+        const exportedSessionKey = await crypto.subtle.exportKey("raw", this.#sessionKey);
+        const sessionKeyBuffer = await crypto.subtle.encrypt(
+          {
+            name: "RSA-OAEP"
+          },
+          publicKey,
+          exportedSessionKey
+        );
+        const sessionKeyBufferString = new Uint8Array(sessionKeyBuffer).toBase64();
+        localStorage.setItem("encryptedSessionKey", sessionKeyBufferString);
+        
+        const exportedPrivateKey = await crypto.subtle.exportKey("pkcs8" , privateKey);
+        const privateKeyBuffer = await crypto.subtle.encrypt(
+          {
+            name: "AES-GCM",
+            iv: this.#wrappingIv
+          },
+          this.#wrappingKey,
+          exportedPrivateKey
+        );
+        const privateKeyBufferString = new Uint8Array(privateKeyBuffer).toBase64();
+        localStorage.setItem("encryptedPrivateKey", privateKeyBufferString);
+      }
     }
   }
 
@@ -320,6 +438,7 @@ let sessionVault = new CryptoVault();
 (async () => {
   try {
     await sessionVault.load();
+    sessionVault.encryptAndStoreSessionKey();
     decryptButton.disabled = false;
     backupButton.disabled = false;
     saveButton.disabled = false;
@@ -350,7 +469,7 @@ decryptButton.addEventListener('click', async () => {
 
 backupButton.addEventListener('click', async () => {
   backupButton.disabled = true;
-  const backupPackegesJSON = await sessionVault.getBackupData();
+  const backupPackegesJSON = sessionVault.getBackupData();
   console.log(typeof backupPackegesJSON, backupPackegesJSON);
   const packages = JSON.stringify(backupPackegesJSON);
   const packagesBlob = new Blob([packages], { type: "application/json" });
