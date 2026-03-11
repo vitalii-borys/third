@@ -1,2 +1,6 @@
 cls.txt
 /ignored logs
+/node_modules
+/Additions
+database.db
+server.bat

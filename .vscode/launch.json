@@ -5,10 +5,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "pwa-chrome",
+            "type": "node",
             "request": "launch",
             "name": "Open index.html",
-            "file": "c:\\Users\\photo\\Documents\\GitHub\\third\\index.html"
+            "program": "c:\\Users\\photo\\Documents\\GitHub\\third\\WebSocket.js"
         }
     ]
 }
