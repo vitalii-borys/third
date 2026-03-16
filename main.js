@@ -1,109 +1,27 @@
 //let userPassword = "555";
-const timeOptions = {
-    timeZone: 'Europe/Kiev',
-    dateStyle: 'short',
-    timeStyle: 'short',
-};
-
-let ws = null;
-const websocketServerLocation = "ws://localhost:8080";
-const maxReconnectInterval = 60000;
-let reconnectionAttempts = 0;
-let forceClose = false;
-const serverMessages = [];
-
-function disconnect() {
-  forceClose = true;
-  if (ws) {
-    ws.close();
-  }
-}
-
-function connect(wsServerLocation) {
-  forceClose = false;
-  ws = new WebSocket(websocketServerLocation);
-
-  ws.onopen = () => {
-    console.log("Connected to server");
-    reconnectionAttempts = 0;
-  };
-// have to implement client send message logic to fail sending message when server is down by checking ws.readyState
-  ws.onmessage = async(message) => {
-    const messageData = JSON.parse(message.data);
-    for (let i = 0; i < messageData.length; i++) {
-      serverMessages.push(messageData[i].text);
-    }
-    userMessages.innerHTML = "";
-    try {        
-      for (let i = 0; i < serverMessages.length; i++) {
-        let decryptedData = await sessionVault.decryptPackage(serverMessages[i]);
-        console.log("Decrypted message: ", decryptedData.message,
-          "Received time: ", new Date(Number(decryptedData.receivedTimestamp)).toLocaleString('en-US', timeOptions));
-        let messagediv = document.createElement('div');
-        messagediv.style.fontSize = '24px';
-        const messageTime = new Date(Number(decryptedData.receivedTimestamp));
-        const UAFormatted = messageTime.toLocaleString('en-US', timeOptions);
-        messagediv.textContent = decryptedData.message + " " + UAFormatted;
-        userMessages.append(messagediv);
-      }
-    } catch (e) {
-      console.log("Server message decrytion failed.", e);
-    }
-  };
-
-  ws.onclose = () => {
-    if (forceClose) {
-      disconnect();
-      console.log("Disconnected manually. Stopping reconnection.");
-      return;
-    }
-
-    reconnectionAttempts++;
-    const baseWait = Math.min(maxReconnectInterval, 3000 * Math.pow(2, reconnectionAttempts - 1));
-    const jitter = Math.random() * (baseWait * 0.25);
-    const reconnectInterval = baseWait + jitter;
-    console.log("Connection closed. Reconnecting after", reconnectInterval, "ms", ws.readyState);
-    setTimeout(() => {
-      if (!forceClose) {
-        connect(wsServerLocation);
-      }
-    }, reconnectInterval);
-    ws.onclose = null;
-  }
-  
-  ws.onerror = () => {
-    console.log("Error. Ready state:", ws.readyState);
-    ws.close();
-    ws.onerror = null;
-  }
-}
 
 const timestampLength = 8;
 const saltLength = 16;
 const ivLength = 12;
 
-const userInput = document.createElement('input');
-const userMessages = document.createElement('div');
-const saveButton = document.createElement('button');
-const backupButton = document.createElement('button');
-const uploadBackupButton = document.createElement('button');
-const fileUpload = document.createElement('input');
-fileUpload.type = 'file';
-fileUpload.accept = 'application/json';
-userInput.style.fontSize = '25px';
-userInput.id = 'user_input';
-userInput.style.width = '80vw';
-saveButton.style.fontSize = '25px';
-saveButton.style.width = '19vw';
-saveButton.textContent = 'Send';
-backupButton.textContent = 'Get backup link';
-backupButton.style.width = '19vw';
-backupButton.style.fontSize = '20px';
-uploadBackupButton.textContent = 'Upload backup';
-uploadBackupButton.style.width = '19vw';
-uploadBackupButton.style.fontSize = '20px';
-const bodyPage = document.body;
-bodyPage.append(userInput, saveButton, userMessages, backupButton, uploadBackupButton, fileUpload);
+const userInput = document.getElementById('user_input');
+const userMessages = document.getElementById('userMessages');
+const saveButton = document.getElementById('saveButton');
+const backupButton = document.getElementById('backupButton');
+const uploadBackupButton = document.getElementById('uploadBackupButton');
+const fileUpload = document.getElementById('fileUpload');
+
+userInput.focus();
+userInput.addEventListener("input", function() {
+  this.style.height = "auto";
+  this.style.height = (this.scrollHeight) + "px";
+});
+
+function scrollToBottom() {
+  requestAnimationFrame(() => {
+    userMessages.scrollTop = userMessages.scrollHeight;
+  });
+}
 
 class CryptoVault {
   #wrappingIv;
@@ -111,16 +29,218 @@ class CryptoVault {
   #salt;
   #sessionKey;
   #localStorageAvailable;
-  #publicKey;
-  #privateKey;
+  serverPublicKey;
+  clientPublicKey;
+  #serverPrivateKey;
+  #clientPrivateKey;
   #wrappingKey;
   username;
   #encryptedPackages;
+  timeOptions = {
+    timeZone: 'Europe/Kiev',
+    dateStyle: 'short',
+    timeStyle: 'short',
+  };
+  days = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  ws = null;
+  websocketServerLocation = "ws://localhost:8080";
+  maxReconnectInterval = 60000;
+  reconnectionAttempts = 0;
+  forceClose = false;
+  currentMessageId = 0;
 
   constructor() {
     this.#localStorageAvailable = CryptoVault.storageAvailable("localStorage");
   }
-  
+
+  disconnect() {
+    this.forceClose = true;
+    if (ws) {
+      ws.close();
+    }
+  }
+
+  async handleMessage(message) {
+    try {
+      let decryptedData = await sessionVault.decryptPackage(message.text);
+      console.log("initial currentMessageId", this.currentMessageId);
+      this.currentMessageId++;
+      console.log("currentMessageId after decrypting initial server message", this.currentMessageId);
+      const messageDiv = this.createMessageElement(decryptedData.message, decryptedData.receivedTimestamp, message.id);
+      userMessages.append(messageDiv);
+    } catch (e) {
+      console.log("Server message decryption failed.", e);
+    }
+  }
+
+  createMessageElement = function(message, timestamp, id) {
+    const messageDiv = document.createElement('div');
+    const messageTime = new Date(Number(timestamp));
+    const formatted = `${String(messageTime.getHours()).padStart(2, 0)}:${String(messageTime.getMinutes()).padStart(2, 0)}`;
+    messageDiv.classList = "message";
+    const dayName = this.days[messageTime.getDay()];
+    let mes = document.createElement('div');
+    let mesDay = document.createElement('div');
+    let mesTime = document.createElement('div');
+    mes.classList = "mes";
+    mesDay.classList = "mesDay";
+    mesTime.classList = "mesTime";
+    mes.textContent = message;
+    mesDay.textContent = `${dayName}`;
+    mesTime.textContent = formatted;
+    messageDiv.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.createContextMenu(e.pageX, e.pageY, id, messageDiv);
+    });
+    messageDiv.append(mes, mesDay, mesTime);
+    return messageDiv;
+  }
+
+  createContextMenu (x, y, messageId, divToRemove) {
+    const contextMenu = document.createElement('div');
+    const removeButton = document.createElement('div');
+    const updateButton = document.createElement('div');
+    contextMenu.classList = 'contextMenu';
+    contextMenu.style.position = 'absolute';
+    contextMenu.style.left = `${x + 5}px`;
+    contextMenu.style.top = `${y + 5}px`;
+    updateButton.textContent = 'Edit';
+    updateButton.style.position = 'relative';
+    updateButton.style.backgroundColor = 'white';
+    removeButton.textContent = 'Delete';
+    removeButton.style.position = 'relative';
+    removeButton.style.backgroundColor = 'white';
+    contextMenu.append(updateButton, removeButton);
+    removeButton.addEventListener('mouseenter', () => {
+      removeButton.style.background = "lightpink";
+    });
+    removeButton.addEventListener('mouseleave', () => {
+      removeButton.style.background = "white";
+    });
+    updateButton.addEventListener('mouseenter', () => {
+      updateButton.style.background = "lightblue";
+    });
+    updateButton.addEventListener('mouseleave', () => {
+      updateButton.style.background = "white";
+    });
+    removeButton.addEventListener('click', () => {
+      const messageJSON = JSON.stringify({ "id": messageId, "username": sessionVault.username, "messageType": "delete" });
+      console.log(messageJSON);
+      this.ws.send(messageJSON);
+      contextMenu.remove();
+      divToRemove.remove();
+      console.log("currentMessageId before removal:", this.currentMessageId);
+      this.currentMessageId++;
+      console.log("currentMessageId after removal:", this.currentMessageId);
+    });
+    updateButton.addEventListener('click', () => {
+      const inputElement = document.createElement('input');
+      inputElement.type = 'text';
+      inputElement.style.all = 'inherit';
+      inputElement.style.backgroundColor = 'white';
+      inputElement.value = divToRemove.children[0].innerText;
+      divToRemove.children[0].replaceWith(inputElement);
+      inputElement.focus();
+      inputElement.addEventListener('keypress', async (e) => {
+        if (e.key === 'Enter') {
+          const updatedDiv = document.createElement("div");
+          updatedDiv.classList = "mes";
+          let newMessage;
+          try {
+            newMessage = await sessionVault.encryptPackage(inputElement.value);
+          } catch (e) {
+            console.log("Error", e);
+          }
+          updatedDiv.textContent = inputElement.value;
+          inputElement.replaceWith(updatedDiv);
+          const messageJSON = JSON.stringify({ "id": messageId, "text": newMessage, "username": sessionVault.username, "messageType": "update" });
+          console.log(messageJSON);
+          this.ws.send(messageJSON);
+        }
+      });
+      contextMenu.remove();
+    });
+    const closeMenu = (e) => {
+      if (!removeButton.contains(e.target)) {
+        contextMenu.remove();
+        document.removeEventListener('click', closeMenu);
+      }
+    }
+    setTimeout(() => {
+      document.addEventListener('click', closeMenu);
+    }, 5);
+    document.body.append(contextMenu);
+    return removeButton;
+  }
+
+  connect(wsServerLocation) {
+    this.forceClose = false;
+    this.ws = new WebSocket(this.websocketServerLocation);
+
+    this.ws.onopen = () => {
+      console.log("Connected to server");
+      this.reconnectionAttempts = 0;
+      const messageJSON = JSON.stringify({ "messageType": "hello", "username": this.username });
+      this.ws.send(messageJSON);
+    };
+    // have to implement client send message logic to fail sending message when server is down by checking ws.readyState
+    this.ws.onmessage = async(message) => {
+      const messageData = JSON.parse(message.data);
+      console.log(messageData);
+      switch(messageData.messageType) {
+        case "initialMessage": {
+          userMessages.innerHTML = "";
+          for (const msg of messageData.messages) {
+            await this.handleMessage(msg);
+          }
+          scrollToBottom();
+        }
+        break;
+        case "auth": {
+          const serverKeyPair = await this.#generateKeyPair("server");
+          const serverPublicKey = (serverKeyPair).publicKey;
+          const serverPrivateKey = (serverKeyPair).privateKey;
+          this.serverPublicKey = serverPublicKey;
+          this.#serverPrivateKey = serverPrivateKey;
+          const exportedPublicKey = await crypto.subtle.exportKey("spki", this.serverPublicKey);
+          const publicKeyBuffer = new Uint8Array(exportedPublicKey).toBase64();
+          const signatureForServer = await this.signData(messageData.text);
+          const messageJSON = JSON.stringify({ "messageType": "auth", "text": signatureForServer, "publicKey": publicKeyBuffer, "username": this.username });
+          this.ws.send(messageJSON);
+          console.log(messageJSON, "sent");
+        }
+        break;
+      }
+    }
+
+    this.ws.onclose = () => {
+      if (this.forceClose) {
+        this.disconnect();
+        console.log("Disconnected manually. Stopping reconnection.");
+        return;
+      }
+
+      this.reconnectionAttempts++;
+      const baseWait = Math.min(this.maxReconnectInterval, 3000 * Math.pow(2, this.reconnectionAttempts - 1));
+      const jitter = Math.random() * (baseWait * 0.25);
+      const reconnectInterval = baseWait + jitter;
+      console.log("Connection closed. Reconnecting after", reconnectInterval, "ms", this.ws.readyState);
+      setTimeout(() => {
+        if (!this.forceClose) {
+          this.connect(wsServerLocation);
+        }
+      }, reconnectInterval);
+      this.ws.onclose = null;
+    }
+    
+    this.ws.onerror = () => {
+      console.log("Error. Ready state:", this.ws.readyState);
+      ws.close();
+      ws.onerror = null;
+    }
+  }
+
+
   getUsername() {
     let username;
     if (localStorage.getItem("username") !== null && localStorage.getItem("username") !== "undefined") {
@@ -141,12 +261,12 @@ class CryptoVault {
 
   async load() {
     this.getUsername();
-    let userPassword;
-    userPassword = prompt("Enter password");
+    let userPassword = 333;
+    /* userPassword = prompt("Enter password");
     if (userPassword === null || userPassword.length === 0) {
       console.log("Aborted");
       throw new Error("No password provided");
-    }
+    } */
     this.#sessionKey = await this.#getKey(userPassword);
     return this;
   }
@@ -165,6 +285,19 @@ class CryptoVault {
     return backupJSON;
   }
 
+  async signData(data) {
+    const enc = new TextEncoder();
+    const encodedData = enc.encode(data)
+    console.log(data, this.#serverPrivateKey);
+    let signature = await window.crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      this.#serverPrivateKey,
+      encodedData
+    );
+    signature = new Uint8Array(signature).toBase64();
+    return signature;
+  }
+
   async encryptStoreAndSend(userInput) {
     if (userInput === "") {
       return;
@@ -172,15 +305,16 @@ class CryptoVault {
     const packageData = await this.encryptPackage(userInput);
     this.#encryptedPackages.messages.push({id: this.#encryptedPackages.messages[this.#encryptedPackages.messages.length - 1].id + 1, text: packageData})
     localStorage.setItem("encryptedPackages", JSON.stringify({messages: this.#encryptedPackages.messages}));
-    let messagediv = document.createElement('div');
     const messageTime = new Date();
-    const UAformatted = messageTime.toLocaleString('en-US', timeOptions);
-    messagediv.textContent = userInput + " " + UAformatted;
-    messagediv.style.fontSize = '24px';
-    userMessages.append(messagediv);
-    const messageJSON = JSON.stringify({ "text": packageData, "username": this.username });
-    console.log(typeof messageJSON, messageJSON);
-    ws.send(messageJSON);
+    const userMessage = this.createMessageElement(userInput, messageTime, this.currentMessageId);
+    console.log(packageData, messageTime, this.currentMessageId);
+    const messageJSON = JSON.stringify({ "text": packageData, "username": this.username, "messageType": "message" });
+    this.ws.send(messageJSON);
+    userMessages.append(userMessage);
+    console.log("currentMessageId before sending:", this.currentMessageId);
+    this.currentMessageId++;
+    console.log("currentMessageId after sending:", this.currentMessageId);
+    scrollToBottom();
   }
 
   #bigintToUint8Buffer (bigInt) {
@@ -338,17 +472,31 @@ class CryptoVault {
     }
   }
 
-  async #generateKeyPair() {
-    const keyPair = window.crypto.subtle.generateKey(
-      {
-      name: "RSA-OAEP",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-      },
-      true,
-      ["encrypt", "decrypt"]
-    )
+  async #generateKeyPair(destination) {
+    let keyPair = null;
+    if (destination === "server") {
+      keyPair = window.crypto.subtle.generateKey(
+        {
+          name: "RSASSA-PKCS1-v1_5",
+          modulusLength: 2048,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: "SHA-256",
+        },
+        true,
+        ["sign", "verify"]
+      )
+    } else if (destination === "client") {      
+      keyPair = await window.crypto.subtle.generateKey(
+        {
+          name: "RSA-OAEP",
+          modulusLength: 4096,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: "SHA-256",
+        },
+        true,
+        ["encrypt", "decrypt"],
+      );
+    }
     return keyPair;
   }
 
@@ -363,8 +511,8 @@ class CryptoVault {
           true,
           ["encrypt"]
         );
-        this.#publicKey = publicKey;
-        //console.log("Public key from local storage is:", this.#publicKey);
+        this.clientPublicKey = publicKey;
+        //console.log("Public key from local storage is:", this.publicKey);
         const privateKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedPrivateKey"));
         let decryptedPrivateKey;
         try {
@@ -387,27 +535,37 @@ class CryptoVault {
             true,
             ["decrypt"],
           );
-        this.#privateKey = privateKey;
-        //console.log("Private key from local storage is:", this.#privateKey);
+        this.#clientPrivateKey = privateKey;
+        //console.log("Private key (client) from local storage is:", this.#clientPrivateKey);
       } else {
-        const keyPair = this.#generateKeyPair();
-        const publicKey = (await keyPair).publicKey;
-        const exportedPublicKey = await crypto.subtle.exportKey("spki", publicKey);
+        const clientKeyPair = this.#generateKeyPair("server");
+        const clientPublicKey = (await clientKeyPair).publicKey;
+        this.clientPublicKey = clientPublicKey;
+        console.log(clientPublicKey);
+        const exportedPublicKey = await crypto.subtle.exportKey("spki", clientPublicKey);
+        console.log(exportedPublicKey);
+        console.log(new Uint8Array(exportedPublicKey).toBase64(), "will go to local storage");
         localStorage.setItem("publicKey", new Uint8Array(exportedPublicKey).toBase64())
-        const privateKey = (await keyPair).privateKey;
-        console.log("No key pair in local storage so newely generated keys are: ", publicKey, privateKey);
+        const clientPrivateKey = (await clientKeyPair).privateKey;
+        this.#clientPrivateKey = clientPrivateKey;
+        console.log(clientPrivateKey);
+        console.log("No key pair in local storage so newely generated keys are: ", clientPublicKey, clientPrivateKey);
         const exportedSessionKey = await crypto.subtle.exportKey("raw", this.#sessionKey);
+        console.log(exportedSessionKey);
         const sessionKeyBuffer = await crypto.subtle.encrypt(
           {
-            name: "RSA-OAEP"
+            name: "AES-GCM",
+            iv: this.#wrappingIv
           },
-          publicKey,
+          this.#sessionKey,
           exportedSessionKey
         );
         const sessionKeyBufferString = new Uint8Array(sessionKeyBuffer).toBase64();
+        console.log(sessionKeyBufferString, "will go to local storage");
         localStorage.setItem("encryptedSessionKey", sessionKeyBufferString);
         
-        const exportedPrivateKey = await crypto.subtle.exportKey("pkcs8" , privateKey);
+        const exportedPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#clientPrivateKey);
+        console.log(exportedPrivateKey);
         const privateKeyBuffer = await crypto.subtle.encrypt(
           {
             name: "AES-GCM",
@@ -417,6 +575,7 @@ class CryptoVault {
           exportedPrivateKey
         );
         const privateKeyBufferString = new Uint8Array(privateKeyBuffer).toBase64();
+        console.log(privateKeyBufferString, "will go to local storage");
         localStorage.setItem("encryptedPrivateKey", privateKeyBufferString);
       }
     }
@@ -511,13 +670,12 @@ let sessionVault = new CryptoVault();
     //await sessionVault.loadAndDecrypt();
     backupButton.disabled = false;
     saveButton.disabled = false;
-    connect(websocketServerLocation);
+    sessionVault.connect(sessionVault.websocketServerLocation);
     return sessionVault;
   } catch (e) {
     console.log("Loading failed with error: ", e);
   }
 })();
-
 
 saveButton.addEventListener('click', async () => {
   saveButton.disabled = true;
@@ -558,7 +716,14 @@ uploadBackupButton.addEventListener("click", () => {
     myImportedJSON = JSON.parse(reader.result);
     localStorage.setItem("encryptedPackages", JSON.stringify(myImportedJSON.encryptedPackages));
     localStorage.setItem("encryptedWrappedKey", myImportedJSON.encryptedWrappedKey);
-    localStorage.setItem("messageIv", myImportedJSON.messageIV);
+    const messageIvStart = crypto.getRandomValues(new Uint8Array(ivLength - 4));
+    const messageIvEnd = new Uint8Array(4).fill(0);
+    const messageIv = new Uint8Array(ivLength);
+    messageIv.set(messageIvStart, 0);
+    messageIv.set(messageIvEnd, messageIvStart.length);
+    console.log("messageIv ", messageIv, messageIv.toString());
+    localStorage.setItem("messageIv", messageIv.toBase64());
+    console.log("messageIv ", messageIv, " stored in local storage: ", messageIv.toString());
     localStorage.setItem("encryptedSessionKey", myImportedJSON.encryptedSessionKey);
     localStorage.setItem("publicKey", myImportedJSON.publicKey);
     localStorage.setItem("encryptedPrivateKey", myImportedJSON.encryptedPrivateKey);

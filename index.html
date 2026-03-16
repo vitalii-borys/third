@@ -4,38 +4,22 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>"Let get Git cursed 6th commit"</title>
-    <style>
-        body {
-            overflow: hidden;
-            background: #555;
-            margin: 0;
-        }
-        button {
-            width: 20%;
-        }
-        input,
-            textarea {
-            field-sizing: content;
-            min-width: 51%;
-            max-width: 90%;
-        }
-        *{
-            margin: 0;
-            padding: 0;
-        }
-        #container {
-            display: flex;
-            flex-direction: column;
-            width: 100vw;
-            height: 100vw;
-            position: absolute;
-        }
-    </style>
+    <title>"Chatting App"</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <!-- <h1>Hello, fucking bastard</h1>
-    <Button onclick="document.body.innerHTML = '<h1>Javascript added</h1>'">Press</Button> -->
+    <div id="backupControls">
+        <button type="button" id="backupButton">Get backup</button>
+        <input type="file" id="fileUpload" accept="application/json">
+        <button type="button" id="uploadBackupButton">Upload backup</button>
+    </div>
+    <div id="chatDiv">
+        <div id="userMessages"></div>
+        <div id="inputField">
+            <textarea type="text" rows="1" id="user_input"></textarea>
+            <button type="button" id="saveButton">Send</button>
+        </div>
+    </div>
 </body>
-<script src="main.js"></script>
+<script type="module" src="main.js"></script>
 </html>
