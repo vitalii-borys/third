@@ -24,6 +24,7 @@ function scrollToBottom() {
 }
 
 class CryptoVault {
+  firstTime;
   #wrappingIv;
   #messageIv;
   #salt;
@@ -63,9 +64,8 @@ class CryptoVault {
   async handleMessage(message) {
     try {
       let decryptedData = await sessionVault.decryptPackage(message.text);
-      console.log("initial currentMessageId", this.currentMessageId);
-      this.currentMessageId++;
-      console.log("currentMessageId after decrypting initial server message", this.currentMessageId);
+      this.currentMessageId = message.id;
+      console.log("this.currentMessageId", this.currentMessageId);
       const messageDiv = this.createMessageElement(decryptedData.message, decryptedData.receivedTimestamp, message.id);
       userMessages.append(messageDiv);
     } catch (e) {
@@ -97,6 +97,10 @@ class CryptoVault {
   }
 
   createContextMenu (x, y, messageId, divToRemove) {
+    const menu = document.getElementsByClassName('contextMenu');
+    if (menu[0] !== undefined) {
+      menu[0].remove();
+    }
     const contextMenu = document.createElement('div');
     const removeButton = document.createElement('div');
     const updateButton = document.createElement('div');
@@ -129,9 +133,6 @@ class CryptoVault {
       this.ws.send(messageJSON);
       contextMenu.remove();
       divToRemove.remove();
-      console.log("currentMessageId before removal:", this.currentMessageId);
-      this.currentMessageId++;
-      console.log("currentMessageId after removal:", this.currentMessageId);
     });
     updateButton.addEventListener('click', () => {
       const inputElement = document.createElement('input');
@@ -139,9 +140,20 @@ class CryptoVault {
       inputElement.style.all = 'inherit';
       inputElement.style.backgroundColor = 'white';
       inputElement.value = divToRemove.children[0].innerText;
+      const unUpdatedMessage = divToRemove.children[0]
       divToRemove.children[0].replaceWith(inputElement);
       inputElement.focus();
-      inputElement.addEventListener('keypress', async (e) => {
+
+      setTimeout(() => {
+        document.addEventListener('click', () => {
+          inputElement.replaceWith(unUpdatedMessage);
+        }, { once: true });
+      }, 5);
+
+      inputElement.addEventListener('keydown', async (e) => {
+        if (e.key === 'Escape') {
+          inputElement.replaceWith(unUpdatedMessage);
+        }
         if (e.key === 'Enter') {
           const updatedDiv = document.createElement("div");
           updatedDiv.classList = "mes";
@@ -176,18 +188,32 @@ class CryptoVault {
   connect(wsServerLocation) {
     this.forceClose = false;
     this.ws = new WebSocket(this.websocketServerLocation);
-
-    this.ws.onopen = () => {
+    this.ws.onopen = async () => {
       console.log("Connected to server");
       this.reconnectionAttempts = 0;
-      const messageJSON = JSON.stringify({ "messageType": "hello", "username": this.username });
-      this.ws.send(messageJSON);
+      const exportedPublicKey = await crypto.subtle.exportKey("spki", this.serverPublicKey);
+      const publicKeyBuffer = new Uint8Array(exportedPublicKey).toBase64();
+      if (this.firstTime) {
+        const messageJSON = JSON.stringify({ "messageType": "register", "username": this.username, "publicKey": publicKeyBuffer });
+        this.ws.send(messageJSON);
+        console.log(messageJSON, "sent to server");
+      } else {
+        const messageJSON = JSON.stringify({ "messageType": "challenge", "username": this.username });
+        this.ws.send(messageJSON);
+        console.log(messageJSON, "sent to server");
+      }
     };
     // have to implement client send message logic to fail sending message when server is down by checking ws.readyState
     this.ws.onmessage = async(message) => {
       const messageData = JSON.parse(message.data);
-      console.log(messageData);
       switch(messageData.messageType) {
+        case "error": {
+          console.log(messageData);
+        }
+        case "noAuth": {
+          console.log(messageData);
+        }
+        break;
         case "initialMessage": {
           userMessages.innerHTML = "";
           for (const msg of messageData.messages) {
@@ -197,15 +223,9 @@ class CryptoVault {
         }
         break;
         case "auth": {
-          const serverKeyPair = await this.#generateKeyPair("server");
-          const serverPublicKey = (serverKeyPair).publicKey;
-          const serverPrivateKey = (serverKeyPair).privateKey;
-          this.serverPublicKey = serverPublicKey;
-          this.#serverPrivateKey = serverPrivateKey;
-          const exportedPublicKey = await crypto.subtle.exportKey("spki", this.serverPublicKey);
-          const publicKeyBuffer = new Uint8Array(exportedPublicKey).toBase64();
+          console.log(messageData);
           const signatureForServer = await this.signData(messageData.text);
-          const messageJSON = JSON.stringify({ "messageType": "auth", "text": signatureForServer, "publicKey": publicKeyBuffer, "username": this.username });
+          const messageJSON = JSON.stringify({ "messageType": "auth", "text": signatureForServer, "username": this.username });
           this.ws.send(messageJSON);
           console.log(messageJSON, "sent");
         }
@@ -246,8 +266,10 @@ class CryptoVault {
     if (localStorage.getItem("username") !== null && localStorage.getItem("username") !== "undefined") {
       username = localStorage.getItem("username");
       console.log("Username from local storage: ", username);
+      this.firstTime = false;
       this.username = username;
     } else {
+      this.firstTime = true;
       let username = prompt("Enter username");
       if (username === null || username.length === 0) {
         console.log("Aborted");
@@ -306,14 +328,12 @@ class CryptoVault {
     this.#encryptedPackages.messages.push({id: this.#encryptedPackages.messages[this.#encryptedPackages.messages.length - 1].id + 1, text: packageData})
     localStorage.setItem("encryptedPackages", JSON.stringify({messages: this.#encryptedPackages.messages}));
     const messageTime = new Date();
-    const userMessage = this.createMessageElement(userInput, messageTime, this.currentMessageId);
-    console.log(packageData, messageTime, this.currentMessageId);
-    const messageJSON = JSON.stringify({ "text": packageData, "username": this.username, "messageType": "message" });
-    this.ws.send(messageJSON);
-    userMessages.append(userMessage);
-    console.log("currentMessageId before sending:", this.currentMessageId);
     this.currentMessageId++;
-    console.log("currentMessageId after sending:", this.currentMessageId);
+    const userMessage = this.createMessageElement(userInput, messageTime, this.currentMessageId);
+    const messageJSON = JSON.stringify({ "id": this.currentMessageId, "text": packageData, "username": this.username, "messageType": "message" });
+    this.ws.send(messageJSON);
+    console.log(messageJSON);
+    userMessages.append(userMessage);
     scrollToBottom();
   }
 
@@ -502,7 +522,10 @@ class CryptoVault {
 
   async encryptAndStorePrivatePublicKeys() {
     if (this.#localStorageAvailable) {
-      if (localStorage.getItem("encryptedSessionKey") !== null && localStorage.getItem("encryptedPrivateKey") !== null && localStorage.getItem("publicKey") !== null) {
+      if (localStorage.getItem("encryptedSessionKey") !== null
+      && localStorage.getItem("encryptedPrivateKey") !== null && localStorage.getItem("publicKey") !== null
+      && localStorage.getItem("encryptedServerPrivateKey") !== null && localStorage.getItem("serverPublicKey") !== null) {
+
         const publicKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("publicKey"));
         const publicKey = await crypto.subtle.importKey(
           "spki",
@@ -512,7 +535,7 @@ class CryptoVault {
           ["encrypt"]
         );
         this.clientPublicKey = publicKey;
-        //console.log("Public key from local storage is:", this.publicKey);
+        
         const privateKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedPrivateKey"));
         let decryptedPrivateKey;
         try {
@@ -536,20 +559,66 @@ class CryptoVault {
             ["decrypt"],
           );
         this.#clientPrivateKey = privateKey;
-        //console.log("Private key (client) from local storage is:", this.#clientPrivateKey);
+        
+        const serverPublicKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("serverPublicKey"));
+        const serverPublicKey = await crypto.subtle.importKey(
+          "spki",
+          serverPublicKeyBuffer,
+          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+          true,
+          ["verify"]
+        );
+        this.serverPublicKey = serverPublicKey;
+        
+        const serverPrivateKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedServerPrivateKey"));
+        let decryptedServerPrivateKey;
+        try {
+          decryptedServerPrivateKey = await crypto.subtle.decrypt(
+            {
+              name: "AES-GCM",
+              iv: this.#wrappingIv
+            },
+            this.#wrappingKey,
+            serverPrivateKeyBuffer
+          );
+        } catch (e) {
+          console.log("Decryption failed with error: ", e);
+          throw new Error("Wrong password");
+        }
+        const serverPrivateKey = await window.crypto.subtle.importKey(
+            "pkcs8",
+            decryptedServerPrivateKey,
+            { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+            true,
+            ["sign"],
+          );
+        this.#serverPrivateKey = serverPrivateKey;
+
       } else {
-        const clientKeyPair = this.#generateKeyPair("server");
+        const clientKeyPair = this.#generateKeyPair("client");
+        const serverKeyPair = this.#generateKeyPair("server");
+        
         const clientPublicKey = (await clientKeyPair).publicKey;
-        this.clientPublicKey = clientPublicKey;
-        console.log(clientPublicKey);
-        const exportedPublicKey = await crypto.subtle.exportKey("spki", clientPublicKey);
-        console.log(exportedPublicKey);
-        console.log(new Uint8Array(exportedPublicKey).toBase64(), "will go to local storage");
-        localStorage.setItem("publicKey", new Uint8Array(exportedPublicKey).toBase64())
         const clientPrivateKey = (await clientKeyPair).privateKey;
+        this.clientPublicKey = clientPublicKey;
         this.#clientPrivateKey = clientPrivateKey;
-        console.log(clientPrivateKey);
         console.log("No key pair in local storage so newely generated keys are: ", clientPublicKey, clientPrivateKey);
+        
+        const exportedPublicKey = await crypto.subtle.exportKey("spki", clientPublicKey);
+        localStorage.setItem("publicKey", new Uint8Array(exportedPublicKey).toBase64())
+        
+        const exportedPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#clientPrivateKey);
+        const privateKeyBuffer = await crypto.subtle.encrypt(
+          {
+            name: "AES-GCM",
+            iv: this.#wrappingIv
+          },
+          this.#wrappingKey,
+          exportedPrivateKey
+        );
+        const privateKeyBufferString = new Uint8Array(privateKeyBuffer).toBase64();
+        localStorage.setItem("encryptedPrivateKey", privateKeyBufferString);
+        
         const exportedSessionKey = await crypto.subtle.exportKey("raw", this.#sessionKey);
         console.log(exportedSessionKey);
         const sessionKeyBuffer = await crypto.subtle.encrypt(
@@ -561,22 +630,28 @@ class CryptoVault {
           exportedSessionKey
         );
         const sessionKeyBufferString = new Uint8Array(sessionKeyBuffer).toBase64();
-        console.log(sessionKeyBufferString, "will go to local storage");
         localStorage.setItem("encryptedSessionKey", sessionKeyBufferString);
         
-        const exportedPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#clientPrivateKey);
-        console.log(exportedPrivateKey);
-        const privateKeyBuffer = await crypto.subtle.encrypt(
+        const serverPublicKey = (await serverKeyPair).publicKey;
+        const serverPrivateKey = (await serverKeyPair).privateKey;
+        this.serverPublicKey = serverPublicKey;
+        this.#serverPrivateKey = serverPrivateKey;
+        console.log("No key pair in local storage so newely generated server keys are: ", serverPublicKey, serverPrivateKey);
+
+        const exportedServerPublicKey = await crypto.subtle.exportKey("spki", serverPublicKey);
+        localStorage.setItem("serverPublicKey", new Uint8Array(exportedServerPublicKey).toBase64())
+        
+        const exportedSeverPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#serverPrivateKey);
+        const serverPrivateKeyBuffer = await crypto.subtle.encrypt(
           {
             name: "AES-GCM",
             iv: this.#wrappingIv
           },
           this.#wrappingKey,
-          exportedPrivateKey
+          exportedSeverPrivateKey
         );
-        const privateKeyBufferString = new Uint8Array(privateKeyBuffer).toBase64();
-        console.log(privateKeyBufferString, "will go to local storage");
-        localStorage.setItem("encryptedPrivateKey", privateKeyBufferString);
+        const serverPrivateKeyBufferString = new Uint8Array(serverPrivateKeyBuffer).toBase64();
+        localStorage.setItem("encryptedServerPrivateKey", serverPrivateKeyBufferString);
       }
     }
   }
