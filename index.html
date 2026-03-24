@@ -8,6 +8,49 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <div id="forms">
+        <form id="logInForm">
+            <h1>Welcome</h1>
+            <label id="loginUsernameInputLabel" for="loginUsernameInput">Username</label>
+            <input name="username" id="loginUsernameInput" type="text" autocomplete="username">
+            <label id="loginPasswordInputLabel" for="loginPasswordInput">Password</label>
+            <input id="loginPasswordInput" type="password" autocomplete="current-password">
+            <button id="loginButton" type="button">Log in</button>
+            <label id="signupButtonLabel" for="signupButton">New user?</label>
+            <button id="signupButton" type="button">Sign up</button>
+        </form>
+        <form id="registrationForm">
+            <h1>Registration</h1>
+            <label id="registerUsernameInputLabel" for="registerUsernameInput">Username</label>
+            <input name="username" id="registerUsernameInput" type="text" autocomplete="username" required>
+            <label id="registerPasswordInputLabel" for="registerPasswordInput">Password</label>
+            <input id="registerPasswordInput" type="password" autocomplete="new-password" required>
+            <label id="registerPasswordInputConfirmLabel" for="registerPasswordInputConfirm">Confirm password</label>
+            <input id="registerPasswordInputConfirm" type="password" autocomplete="new-password" required name="up">
+            <button id="registrationSignupButton" type="button">Sign up</button>
+            <button id="backToLogin" type="button">Back to log in</button>
+        </form>
+    </div>
+        <div id="contactContainer">
+            <div id="contactControls">
+                <button id="contactButton">Addcontact</button>
+            </div>
+            <div id="contactDiv">
+            </div>
+    </div>
+    <div id="adminDiv">
+        <button id="adminButton" type="button">Show database</button>
+        <table id="adminTable">
+            <thead id="databaseThead">
+                <tr id="upperTr">
+                    <th id="usernameTh" scope="col">Username</th>
+                    <th id="userRoleTh" scope="col">User role</th>
+                    <th id="messageTextTh" scope="col">Last message</th>
+                </tr>
+            </thead>
+            <tbody id="adminTableBody"></tbody>
+        </table>
+    </div>
     <div id="backupControls">
         <button type="button" id="backupButton">Get backup</button>
         <input type="file" id="fileUpload" accept="application/json">

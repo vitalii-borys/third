@@ -7,7 +7,7 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Open index.html",
+            "name": "Open WebSocket.js",
             "program": "c:\\Users\\photo\\Documents\\GitHub\\third\\WebSocket.js"
         }
     ]

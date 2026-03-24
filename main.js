@@ -10,6 +10,25 @@ const saveButton = document.getElementById('saveButton');
 const backupButton = document.getElementById('backupButton');
 const uploadBackupButton = document.getElementById('uploadBackupButton');
 const fileUpload = document.getElementById('fileUpload');
+const contactDiv = document.getElementById("contactDiv");
+const contactControls = document.getElementById("contactControls");
+const contactButton = document.getElementById('contactButton');
+const logInForm = document.getElementById('logInForm');
+const registrationForm = document.getElementById('registrationForm');
+const loginUsernameInput = document.getElementById('loginUsernameInput');
+const loginPasswordInput = document.getElementById('loginPasswordInput');
+const registerUsernameInput = document.getElementById('registerUsernameInput');
+const loginButton = document.getElementById('loginButton');
+const signupButton = document.getElementById('signupButton');
+const registrationSignupButton = document.getElementById('registrationSignupButton');
+const backToLogin = document.getElementById('backToLogin');
+const loginUsernameInputLabel = document.getElementById('loginUsernameInputLabel');
+const loginPasswordInputLabel = document.getElementById('loginPasswordInputLabel');
+const registerPasswordInput = document.getElementById('registerPasswordInput');
+const registerPasswordInputConfirm = document.getElementById('registerPasswordInputConfirm');
+const registerUsernameInputLabel = document.getElementById('registerUsernameInputLabel');
+const registerPasswordInputLabel = document.getElementById('registerPasswordInputLabel');
+const registerPasswordInputConfirmLabel = document.getElementById('registerPasswordInputConfirmLabel');
 
 userInput.focus();
 userInput.addEventListener("input", function() {
@@ -24,7 +43,6 @@ function scrollToBottom() {
 }
 
 class CryptoVault {
-  firstTime;
   #wrappingIv;
   #messageIv;
   #salt;
@@ -36,6 +54,7 @@ class CryptoVault {
   #clientPrivateKey;
   #wrappingKey;
   username;
+  role;
   #encryptedPackages;
   timeOptions = {
     timeZone: 'Europe/Kiev',
@@ -43,6 +62,7 @@ class CryptoVault {
     timeStyle: 'short',
   };
   days = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   ws = null;
   websocketServerLocation = "ws://localhost:8080";
   maxReconnectInterval = 60000;
@@ -63,7 +83,7 @@ class CryptoVault {
 
   async handleMessage(message) {
     try {
-      let decryptedData = await sessionVault.decryptPackage(message.text);
+      let decryptedData = await sessionVault.decryptPackage(message.messageText);
       this.currentMessageId = message.id;
       console.log("this.currentMessageId", this.currentMessageId);
       const messageDiv = this.createMessageElement(decryptedData.message, decryptedData.receivedTimestamp, message.id);
@@ -155,17 +175,21 @@ class CryptoVault {
           inputElement.replaceWith(unUpdatedMessage);
         }
         if (e.key === 'Enter') {
+          const decryptedMessageToEdit = await this.decryptPackage(this.#encryptedPackages.messages[messageId].text);
+          console.log(decryptedMessageToEdit);
+          const messageToEditTimestamp = decryptedMessageToEdit.receivedTimestamp;
+          console.log(messageToEditTimestamp);
           const updatedDiv = document.createElement("div");
           updatedDiv.classList = "mes";
           let newMessage;
           try {
-            newMessage = await sessionVault.encryptPackage(inputElement.value);
+            newMessage = await sessionVault.encryptPackage(inputElement.value, messageToEditTimestamp);
           } catch (e) {
             console.log("Error", e);
           }
           updatedDiv.textContent = inputElement.value;
           inputElement.replaceWith(updatedDiv);
-          const messageJSON = JSON.stringify({ "id": messageId, "text": newMessage, "username": sessionVault.username, "messageType": "update" });
+          const messageJSON = JSON.stringify({ "id": messageId, "messageText": newMessage, "username": sessionVault.username, "messageType": "update" });
           console.log(messageJSON);
           this.ws.send(messageJSON);
         }
@@ -185,49 +209,147 @@ class CryptoVault {
     return removeButton;
   }
 
-  connect(wsServerLocation) {
+  async registerUser(username) { 
+    const exportedPublicKey = await crypto.subtle.exportKey("spki", this.serverPublicKey);
+    const publicKeyBuffer = new Uint8Array(exportedPublicKey).toBase64();
+    const messageJSON = JSON.stringify({ "messageType": "register", "username": username, "publicKey": publicKeyBuffer });
+    this.ws.send(messageJSON);
+    console.log(messageJSON, "sent to server");
+  }
+
+  connect() {
     this.forceClose = false;
     this.ws = new WebSocket(this.websocketServerLocation);
     this.ws.onopen = async () => {
       console.log("Connected to server");
+      this.username = localStorage.getItem("username");
+      console.log(this.username, "assigned from local storage")
       this.reconnectionAttempts = 0;
-      const exportedPublicKey = await crypto.subtle.exportKey("spki", this.serverPublicKey);
-      const publicKeyBuffer = new Uint8Array(exportedPublicKey).toBase64();
-      if (this.firstTime) {
-        const messageJSON = JSON.stringify({ "messageType": "register", "username": this.username, "publicKey": publicKeyBuffer });
-        this.ws.send(messageJSON);
-        console.log(messageJSON, "sent to server");
-      } else {
-        const messageJSON = JSON.stringify({ "messageType": "challenge", "username": this.username });
-        this.ws.send(messageJSON);
-        console.log(messageJSON, "sent to server");
-      }
     };
+      
     // have to implement client send message logic to fail sending message when server is down by checking ws.readyState
     this.ws.onmessage = async(message) => {
       const messageData = JSON.parse(message.data);
       switch(messageData.messageType) {
+        case "checkUsername": {
+          if (messageData.messageText !== undefined) {
+            registerUsernameInputLabel.textContent = `"Username ${messageData.username} ${messageData.messageText}`;
+            registerUsernameInputLabel.style.color = 'pink';
+          } else {
+            if (!messageData.available) {
+              registerUsernameInputLabel.textContent = `"Username ${messageData.username} is not available`;
+              registerUsernameInputLabel.style.color = 'pink';
+            } else {
+              registerUsernameInputLabel.textContent = `Username ${messageData.username} is available`;
+              registerUsernameInputLabel.style.color = 'lightgreen';
+            }
+            console.log(messageData);
+          }
+        }
+        break;
+        case "registrationSuccess": {
+          registerPasswordInput.value = "";
+          registerPasswordInputConfirm.value = "";
+          registerUsernameInput.value = "";
+          console.log(messageData);
+        }
+        break;
         case "error": {
           console.log(messageData);
         }
+        break;
         case "noAuth": {
           console.log(messageData);
         }
         break;
+        case "noUser": {
+          const alertDiv = document.getElementById('alertDiv');
+          if (alertDiv === null) {
+            const alertDiv = document.createElement('div');
+            alertDiv.textContent = messageData.messageText;
+            alertDiv.id = "alertDiv";
+            contactControls.appendChild(alertDiv);
+          } else {
+            const alertDiv = document.getElementById('alertDiv');
+            alertDiv.textContent = messageData.messageText;
+          }
+        }
+        break;
         case "initialMessage": {
+          logInForm.style.display = "none";
+          chatDiv.style.display = "flex";
+          backupControls.style.display = "flex";
+          contactContainer.style.display = "flex";
+
+          if (messageData.userRole === "admin") {
+            this.role = "admin";
+            console.log(this.role, "is yor role");            
+            const adminbutton = document.getElementById("adminButton");
+            adminbutton.style.display = "flex";
+            const adminTable = document.getElementById("adminTable");
+            const adminTableBody = document.getElementById("adminTableBody");
+            adminbutton.addEventListener('click', () => {
+              if (adminbutton.textContent === "Show database") {
+                adminbutton.textContent = "Hide database";
+                adminTable.style.display = "block";
+              } else {
+                adminTableBody.innerHTML = "";
+                adminbutton.textContent = "Show database";
+                adminTable.style.display = "none";
+              }
+              if (sessionVault.role === "admin") {
+                adminTableBody.innerHTML = "";
+                let row;
+                messageData.users.forEach(user => {
+                  messageData.allMessages.forEach(message => {
+                    if (message.username === user.username) {
+                      console.log(message.username);
+                      const timestamp = new Date(message.messageTime);
+                      const formattedTimestamp = `${String(timestamp.getDate())} ${String(this.months[timestamp.getMonth()])} ${String(timestamp.getHours()).padStart(2, 0)}:${String(timestamp.getMinutes()).padStart(2, 0)}`
+                      row =  `<tr><th>${user.username}</th><td>${user.userRole}</td><td>${formattedTimestamp}</td></tr>`
+                    }
+                  });
+                  adminTableBody.innerHTML += row;
+                });
+              } else if (sessionVault.role === "user") {
+                console.log("You are user");
+              } else {
+                console.log("Role is not set");
+              }
+            });
+          } else if (messageData.role === "user") {
+            this.role = "user";
+            console.log(this.role, "is yor role");
+          }
           userMessages.innerHTML = "";
           for (const msg of messageData.messages) {
             await this.handleMessage(msg);
           }
+          contactDiv.innerHTML = "";
+          const userContacts = JSON.parse(messageData.user.contacts);
+          userContacts.forEach(contact => {
+            const newContactDiv = document.createElement('div');
+            newContactDiv.classList = "newContactDiv";
+            newContactDiv.textContent = contact;
+            contactDiv.appendChild(newContactDiv);
+          });
           scrollToBottom();
         }
         break;
-        case "auth": {
+        case "userContact": {
           console.log(messageData);
-          const signatureForServer = await this.signData(messageData.text);
-          const messageJSON = JSON.stringify({ "messageType": "auth", "text": signatureForServer, "username": this.username });
+          const newContactDiv = document.createElement('div');
+          newContactDiv.classList = "newContactDiv";
+          newContactDiv.textContent = messageData.username;
+          contactDiv.appendChild(newContactDiv);
+          document.getElementById("contactInput").value = "";
+        }
+        break;
+        case "auth": {
+          const signatureForServer = await this.signData(messageData.messageText);
+          const messageJSON = JSON.stringify({ "messageType": "auth", "messageText": signatureForServer, "username": this.username });
           this.ws.send(messageJSON);
-          console.log(messageJSON, "sent");
+          //console.log(messageJSON, "sent");
         }
         break;
       }
@@ -247,7 +369,7 @@ class CryptoVault {
       console.log("Connection closed. Reconnecting after", reconnectInterval, "ms", this.ws.readyState);
       setTimeout(() => {
         if (!this.forceClose) {
-          this.connect(wsServerLocation);
+          this.connect();
         }
       }, reconnectInterval);
       this.ws.onclose = null;
@@ -260,38 +382,13 @@ class CryptoVault {
     }
   }
 
-
-  getUsername() {
-    let username;
-    if (localStorage.getItem("username") !== null && localStorage.getItem("username") !== "undefined") {
-      username = localStorage.getItem("username");
-      console.log("Username from local storage: ", username);
-      this.firstTime = false;
-      this.username = username;
-    } else {
-      this.firstTime = true;
-      let username = prompt("Enter username");
-      if (username === null || username.length === 0) {
-        console.log("Aborted");
-        throw new Error("No username provided");
-      }
-      this.username = username;
-      localStorage.setItem("username", username);
-      console.log("No username in local storage: ", username, " created.");
-    }
-  }
-
-  async load() {
-    this.getUsername();
-    let userPassword = 333;
-    /* userPassword = prompt("Enter password");
-    if (userPassword === null || userPassword.length === 0) {
-      console.log("Aborted");
-      throw new Error("No password provided");
-    } */
+  async load(userPassword, username, registerUser) {
+    this.username = username;
     this.#sessionKey = await this.#getKey(userPassword);
+    await sessionVault.encryptAndStorePrivatePublicKeys(registerUser);
     return this;
   }
+
   getBackupData () {
     this.#initializeStorage();
     const backupJSON = {
@@ -309,8 +406,7 @@ class CryptoVault {
 
   async signData(data) {
     const enc = new TextEncoder();
-    const encodedData = enc.encode(data)
-    console.log(data, this.#serverPrivateKey);
+    const encodedData = enc.encode(data);
     let signature = await window.crypto.subtle.sign(
       "RSASSA-PKCS1-v1_5",
       this.#serverPrivateKey,
@@ -330,7 +426,7 @@ class CryptoVault {
     const messageTime = new Date();
     this.currentMessageId++;
     const userMessage = this.createMessageElement(userInput, messageTime, this.currentMessageId);
-    const messageJSON = JSON.stringify({ "id": this.currentMessageId, "text": packageData, "username": this.username, "messageType": "message" });
+    const messageJSON = JSON.stringify({ "id": this.currentMessageId, "messageText": packageData, "username": this.username, "messageType": "message" });
     this.ws.send(messageJSON);
     console.log(messageJSON);
     userMessages.append(userMessage);
@@ -350,10 +446,15 @@ class CryptoVault {
     return myBigInt;
   }
   
-  async encryptPackage(data) {
+  async encryptPackage(data, timestamp) {
     const encoder = new TextEncoder();
     const encodedData = encoder.encode(data);
-    const additionalData = this.#bigintToUint8Buffer(BigInt(Date.now()));
+    let additionalData;
+    if (timestamp !== undefined) {
+      additionalData = this.#bigintToUint8Buffer(timestamp);
+    } else {
+      additionalData = this.#bigintToUint8Buffer(BigInt(Date.now()));
+    }
     this.#incrementIV(this.#messageIv);
     localStorage.setItem("messageIv", this.#messageIv.toBase64());
     const ciphertext = await crypto.subtle.encrypt(
@@ -520,7 +621,7 @@ class CryptoVault {
     return keyPair;
   }
 
-  async encryptAndStorePrivatePublicKeys() {
+  async encryptAndStorePrivatePublicKeys(registerUser) {
     if (this.#localStorageAvailable) {
       if (localStorage.getItem("encryptedSessionKey") !== null
       && localStorage.getItem("encryptedPrivateKey") !== null && localStorage.getItem("publicKey") !== null
@@ -654,13 +755,16 @@ class CryptoVault {
         localStorage.setItem("encryptedServerPrivateKey", serverPrivateKeyBufferString);
       }
     }
+    if (registerUser) {
+      this.registerUser(this.username);
+    }
   }
 
   #initializeStorage() {
     if (this.#localStorageAvailable) {
       if (localStorage.getItem("encryptedPackages") !== null) {
         this.#encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
-        console.log("Encrypted packages from local storage: ", this.#encryptedPackages);
+        //console.log("Encrypted packages from local storage: ", this.#encryptedPackages);
       } else {
         localStorage.setItem("encryptedPackages", JSON.stringify({messages: [{id: 0, text: ""}]}));
         this.#encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
@@ -668,7 +772,7 @@ class CryptoVault {
       }
       if (localStorage.getItem("wrappingIv") !== null) {
         this.#wrappingIv = Uint8Array.fromBase64(localStorage.getItem("wrappingIv"));
-        console.log("WrappingIv from local storage is: ", this.#wrappingIv.toString());
+        //console.log("WrappingIv from local storage is: ", this.#wrappingIv.toString());
       } else {
         this.#wrappingIv = crypto.getRandomValues(new Uint8Array(ivLength));
         localStorage.setItem("wrappingIv", this.#wrappingIv.toBase64());
@@ -676,7 +780,7 @@ class CryptoVault {
       }
       if (localStorage.getItem("messageIv") !== null) {
         this.#messageIv = Uint8Array.fromBase64(localStorage.getItem("messageIv"));
-        console.log("MessageIv from local storage: ", this.#messageIv.toString());
+        //console.log("MessageIv from local storage: ", this.#messageIv.toString());
       } else {
         console.log("No messageIv in local storage");
         const messageIvStart = crypto.getRandomValues(new Uint8Array(ivLength - 4));
@@ -689,7 +793,7 @@ class CryptoVault {
       }
       if (localStorage.getItem("salt") !== null) {
         this.#salt = Uint8Array.fromBase64(localStorage.getItem("salt"));
-        console.log("Salt from local storage: ", this.#salt.toString());
+        //console.log("Salt from local storage: ", this.#salt.toString());
       } else {
         this.#salt = crypto.getRandomValues(new Uint8Array(saltLength));
         console.log("Salt :", this.#salt);
@@ -728,6 +832,114 @@ class CryptoVault {
   }
 }
 
+let sessionVault = new CryptoVault();
+sessionVault.connect();
+
+let timeoutID;
+registerPasswordInputConfirm.addEventListener('input', () => {
+  clearTimeout(timeoutID);
+  timeoutID = setTimeout(() => {
+    if (registerPasswordInputConfirm.value.length === 0) {
+      registerPasswordInputConfirmLabel.textContent = 'Write password';
+      registerPasswordInputConfirmLabel.style.color = 'black';
+      registerPasswordInputConfirm.style.backgroundColor = 'white';
+    } else if (registerPasswordInputConfirm.value !== registerPasswordInput.value) {
+      registerPasswordInputConfirmLabel.textContent = "Passwords don't match";
+      registerPasswordInputConfirm.style.backgroundColor = 'pink';
+    } else {
+      registerPasswordInputConfirmLabel.textContent = 'Password confirmed';
+      registerPasswordInputConfirm.style.backgroundColor = 'lightgreen';
+    }
+  }, 500);
+});
+
+registerPasswordInput.addEventListener('input', () => {
+  clearTimeout(timeoutID);
+  timeoutID = setTimeout(() => {
+    if (registerPasswordInput.value.length === 0) {
+      registerPasswordInputLabel.textContent = 'Write password';
+      registerPasswordInputLabel.style.color = 'black';
+      registerPasswordInput.style.backgroundColor = 'white';
+    } else if (registerPasswordInput.value.length < 6) {
+      registerPasswordInputLabel.textContent = '6 charachters minimum';
+      registerPasswordInput.style.backgroundColor = 'pink';
+    } else {
+      registerPasswordInputLabel.textContent = 'Password is good';
+      registerPasswordInput.style.backgroundColor = 'lightgreen';
+    }
+  }, 500);
+});
+
+registerUsernameInput.addEventListener('input', () => {
+  clearTimeout(timeoutID);
+  timeoutID = setTimeout(() => {
+    if (registerUsernameInput.value.length === 0) {
+      registerUsernameInputLabel.textContent = 'Write username';
+      registerUsernameInputLabel.style.color = 'black';
+      registerUsernameInput.style.backgroundColor = 'white';
+      return;
+    } else if (registerUsernameInput.value.length < 3) {
+      registerUsernameInput.style.backgroundColor = 'pink';
+    } else {
+      registerUsernameInput.style.backgroundColor = 'white';
+    }
+    const messageJSON = JSON.stringify({ "messageType": "checkUsername", "username": registerUsernameInput.value });
+    sessionVault.ws.send(messageJSON);
+    console.log(messageJSON, "sent to server");
+  }, 100);
+});
+
+loginPasswordInput.addEventListener('keypress', (event) => {
+  if (event.key === "Enter") {
+    loginButton.click();
+  }
+});
+
+loginButton.addEventListener('click', async() => {
+  const promiseToLoad = new Promise(async(resolve) => {
+    resolve(await sessionVault.load(loginPasswordInput.value, loginUsernameInput.value, false));
+  });
+  promiseToLoad.then(async () => {
+    if (sessionVault.username !== undefined) {
+      const messageJSON = JSON.stringify({ "messageType": "challenge", "username": sessionVault.username });
+      sessionVault.ws.send(messageJSON);
+      loginUsernameInput.value = "";
+      loginPasswordInput.value = "";
+      registerPasswordInput.value = "";
+      registerPasswordInputConfirm.value = "";
+      registrationForm.style.display = "none";
+      backupButton.disabled = false;
+      saveButton.disabled = false;
+    }
+  });
+});
+
+registrationSignupButton.addEventListener('click', async() => {
+  localStorage.setItem("username", registerUsernameInput.value)
+  try {
+    await sessionVault.load(registerPasswordInput.value, registerUsernameInput.value, true);
+  } catch (e) {
+    console.log("Loading failed with error: ", e);
+  }
+  loginUsernameInput.value = "";
+  loginPasswordInput.value = "";
+});
+
+signupButton.addEventListener('click', () => {
+  loginUsernameInputLabel.textContent = "Username";
+  loginUsernameInputLabel.style.color = "black";
+  loginUsernameInput.value = "";
+  loginPasswordInput.value = "";
+  logInForm.style.display = 'none';
+  registrationForm.style.display = 'flex';
+});
+
+backToLogin.addEventListener('click', () => {
+  registrationForm.style.display = 'none';
+  logInForm.style.display = 'flex';
+  loginUsernameInput.style.backgroundColor = 'white';
+});
+
 userInput.addEventListener("keypress", function(event) {
   if (event.key === "Enter") {
     event.preventDefault();
@@ -735,22 +947,37 @@ userInput.addEventListener("keypress", function(event) {
   }
 });
 
+contactButton.addEventListener('click', () => {
+  const contactInputDiv = document.createElement('div');
+  contactInputDiv.id = "contactInputDiv";
+  contactControls.appendChild(contactInputDiv);
+  const contactInput = document.createElement('input');
+  contactInput.id = "contactInput";
+  const addContactButton = document.createElement('button');
+  addContactButton.id = "addContactButton";
+  addContactButton.textContent = "Add";
+  contactInputDiv.appendChild(contactInput);
+  contactInputDiv.appendChild(addContactButton);
+  contactInput.focus();
+  addContactButton.addEventListener('click', () => {
+    const newContact = contactInput.value;
+    if (newContact === null || newContact.length === 0) {
+      console.log("Aborted");
+      throw new Error("No contact provided");
+    }
+    const messageJSON = JSON.stringify({ "username": sessionVault.username, "messageType": "addContact", "contactUsername": newContact });
+    sessionVault.ws.send(messageJSON);
+    console.log(messageJSON, "sent to server");
+  });
+  contactInput.addEventListener('keydown', (event) => {
+    if (event.key === "Enter") {
+      addContactButton.click();
+    }
+  });
+});
+
 backupButton.disabled = true;
 saveButton.disabled = true;
-let sessionVault = new CryptoVault();
-(async () => {
-  try {
-    await sessionVault.load();
-    await sessionVault.encryptAndStorePrivatePublicKeys();
-    //await sessionVault.loadAndDecrypt();
-    backupButton.disabled = false;
-    saveButton.disabled = false;
-    sessionVault.connect(sessionVault.websocketServerLocation);
-    return sessionVault;
-  } catch (e) {
-    console.log("Loading failed with error: ", e);
-  }
-})();
 
 saveButton.addEventListener('click', async () => {
   saveButton.disabled = true;

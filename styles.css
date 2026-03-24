@@ -11,44 +11,189 @@ body {
     padding: 0;
 }
 
+table {
+    margin: 15px;
+    justify-items: center;
+    word-break: break-word;
+    font-size: 22px;
+}
+
+th,
+td {
+    border: 1px solid black;
+}
+
+button:hover {
+    background-color: #b7bcd8;
+}
+
+form {
+    flex-direction: column;
+    position: relative;
+    align-items: center;
+    top: 50%;
+    transform: translateY(-50%);
+}
+form input {
+    padding: 3px;
+    font-size: 24px;
+    margin: 5px;
+    border-radius: 5px;
+}
+form label {
+    margin-top: 4px;
+    font-size: 20px;
+}
+form button {
+    border: 1px solidd black;
+    border-radius: 5px;
+    padding: 5px;
+    margin-top: 5px;
+    font-size: 20px;
+}
+
+#forms{
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    align-self: center;
+    top: 50%;
+    transform: translateY(-50%);
+}
+#registrationForm{
+    display: none;
+}
+#logInForm {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+#signupButtonLabel {
+    font-size: 20px;
+}
+#backToLogin {
+    font-size: 17px;
+    padding: 2px;
+}
+
 .contextMenu >*{
     font-size: 20px;
-    margin: 3px;
     border: 1px solid black;
     border-radius: 4px;
 }
 
-#backupControls {
-    min-width: 550px;
+#contactContainer{
+    display: none;
+    flex-direction: column;
+    position: absolute;
+    left: 0px;
+    width: 25vw;
+    height: 100vh;
+    z-index: 2;
+}
+#contactControls{
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    left: 0px;
+    width: 25vw;
+}
+#contactDiv {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    left: 0px;
+    width: 25vw;
+}
+#contactInputDiv {
     display: flex;
     flex-direction: row;
-    flex: 1;
+}
+#addContactButton {
+    border-radius: 6px;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 22px;
+}
+#contactInput {
+    margin: 5px;
+    font-size: 22px;
+}
+#contactButton {
+    border-radius: 6px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    margin: 5px;
+    font-size: 22px;
+    position: relative;
+}
+#alertDiv {
+    font-size: 22px;
+    color: white;
+    border: 1px solid black;
+    border-radius: 6px;
+}
+.newContactDiv {
+    padding: 4px;
+    margin-top: 6px;
+    font-size: 24px;
+    border: 1px solid grey;
+    border-radius: 5px;
+}
+.newContactDiv:hover {
+    background-color: rgb(133, 141, 151);
+}
+
+#adminTable {
+    display: none;
+}
+
+#adminButton {
+    display: none;
+    justify-content: center;
+    flex-direction: column;
+    margin-top: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
     position: relative;
     left: 50%;
     transform: translateX(-50%);
-    width: 50vw;
+    width: fit-content;
+    font-size: 24px;
+    flex: 1;
+}
+
+#backupControls {
+    display: none;
+    flex-direction: column;
+    position: absolute;
+    right: 0px;
+    width: 25vw;
     margin: 8px;
 }
 #backupButton {
+    position: relative;
     margin: 1vw;
     flex: 1;
     font-size: 18px;
     width: 18vw;
 }
 #uploadBackupButton {
+    position: relative;
     margin: 1vw;
     flex: 1;
     font-size: 20px;
     width: 18vw;
 }
 #fileUpload {
+    position: relative;
     margin: 1vw;
     flex: 1;
 }
 
 #chatDiv{
     min-width: 550px;
-    display: flex;
+    display: none;
     flex-direction: column;
     flex: 20;
     position: relative;
@@ -85,6 +230,9 @@ body {
     margin-top: auto;
 }
 .mes {
+    padding-left: 6px;
+    padding-top: 2px;
+    padding-bottom: 2px;
     flex: 8;
     overflow-wrap: anywhere;
     word-break: break-word;
@@ -109,7 +257,7 @@ body {
 }
 
 #inputField {
-    field-sizing: content;
+    /* field-sizing: content; */
     align-items: center;
     padding: 2vh;
     display: flex;
