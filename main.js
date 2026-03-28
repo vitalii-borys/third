@@ -1,5 +1,3 @@
-//let userPassword = "555";
-
 const timestampLength = 8;
 const saltLength = 16;
 const ivLength = 12;
@@ -19,9 +17,7 @@ const loginUsernameInput = document.getElementById('loginUsernameInput');
 const loginPasswordInput = document.getElementById('loginPasswordInput');
 const registerUsernameInput = document.getElementById('registerUsernameInput');
 const loginButton = document.getElementById('loginButton');
-const signupButton = document.getElementById('signupButton');
 const registrationSignupButton = document.getElementById('registrationSignupButton');
-const backToLogin = document.getElementById('backToLogin');
 const loginUsernameInputLabel = document.getElementById('loginUsernameInputLabel');
 const loginPasswordInputLabel = document.getElementById('loginPasswordInputLabel');
 const registerPasswordInput = document.getElementById('registerPasswordInput');
@@ -29,6 +25,9 @@ const registerPasswordInputConfirm = document.getElementById('registerPasswordIn
 const registerUsernameInputLabel = document.getElementById('registerUsernameInputLabel');
 const registerPasswordInputLabel = document.getElementById('registerPasswordInputLabel');
 const registerPasswordInputConfirmLabel = document.getElementById('registerPasswordInputConfirmLabel');
+const logoutButton = document.getElementById('logout');
+const stayLoggedIn = document.getElementById('stayLoggedIn');
+const welcome = document.getElementById('welcome');
 
 userInput.focus();
 userInput.addEventListener("input", function() {
@@ -222,8 +221,39 @@ class CryptoVault {
     this.ws = new WebSocket(this.websocketServerLocation);
     this.ws.onopen = async () => {
       console.log("Connected to server");
-      this.username = localStorage.getItem("username");
-      console.log(this.username, "assigned from local storage")
+      connectionTitle.style.display = "none";
+      const localUsername = localStorage.getItem("username");
+      if (localUsername !== null) {
+        logInForm.style.display = "flex";
+        loginUsernameInput.value = localUsername;
+      } else {
+        registrationForm.style.display = "flex";
+        registerUsernameInput.focus();
+      }
+      const keyString = sessionStorage.getItem("wrappingKey");
+      if (keyString !== null) {
+        await this.load();
+        this.username = localStorage.getItem("username");
+        console.log(this.username, "assigned from local storage")
+        try {
+          if (this.username !== undefined) {
+            const messageJSON = JSON.stringify({ "messageType": "challenge", "username": this.username });
+            this.ws.send(messageJSON);
+            registrationForm.style.display = "none";
+            backupButton.disabled = false;
+            saveButton.disabled = false;
+          }
+        } catch(err) {
+          console.log(err);
+        }
+        setTimeout(() => {
+          loginUsernameInput.value = "";
+          loginPasswordInput.value = "";
+          registerUsernameInput.value = "";
+          registerPasswordInput.value = "";
+          registerPasswordInputConfirm.value = "";
+        }, 500);
+      }
       this.reconnectionAttempts = 0;
     };
       
@@ -383,9 +413,15 @@ class CryptoVault {
   }
 
   async load(userPassword, username, registerUser) {
-    this.username = username;
-    this.#sessionKey = await this.#getKey(userPassword);
-    await sessionVault.encryptAndStorePrivatePublicKeys(registerUser);
+    if (userPassword === undefined && username === undefined && registerUser === undefined) {
+      this.username = localStorage.getItem("usename");
+      this.#sessionKey = await this.#getKey();
+      await sessionVault.encryptAndStorePrivatePublicKeys(false);
+    } else {
+      this.username = username;
+      this.#sessionKey = await this.#getKey(userPassword);
+      await sessionVault.encryptAndStorePrivatePublicKeys(registerUser);
+    }
     return this;
   }
 
@@ -510,23 +546,42 @@ class CryptoVault {
   }
 
   async deriveWrappingKey(masterKey, salt) {
-    const wrappingKey = await window.crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: salt,
-        iterations: 100000,
-        hash: "SHA-256"
-      },
-      masterKey,
-      {
-        name: "AES-GCM",
-        length: 256,
-      },
-      true,
-      ["encrypt", "decrypt"],
-    );
-    this.#wrappingKey = wrappingKey;
-    return wrappingKey;
+    if (masterKey === undefined && salt === undefined) {
+      const importKeyBuffer = Uint8Array.fromBase64(sessionStorage.getItem("wrappingKey"));
+      const decryptedKey = await window.crypto.subtle.importKey(
+        "raw",
+        importKeyBuffer,
+        "AES-GCM",
+        true,
+        ["encrypt", "decrypt"],
+      );
+      return decryptedKey;
+    } else {
+      const wrappingKey = await window.crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt: salt,
+          iterations: 100000,
+          hash: "SHA-256"
+        },
+        masterKey,
+        {
+          name: "AES-GCM",
+          length: 256,
+        },
+        true,
+        ["encrypt", "decrypt"],
+      );
+      this.#wrappingKey = wrappingKey;
+      const exportedWrappingKey = await window.crypto.subtle.exportKey("raw", wrappingKey);
+      const wrappingKeyBuffer = new Uint8Array(exportedWrappingKey).toBase64();
+      console.log(stayLoggedIn.checked);
+      if (stayLoggedIn.checked) {
+        sessionStorage.setItem("wrappingKey", wrappingKeyBuffer);
+      }
+      console.log("Session key is written to session storage");
+      return wrappingKey;
+    }
   }
   
   async #getKey(userPassword) {
@@ -535,7 +590,14 @@ class CryptoVault {
     userPassword = "";
     const masterKey = await this.getMasterKey(rawPassword);
     rawPassword = null;
-    const wrappingKey = await this.deriveWrappingKey(masterKey, this.#salt);
+    const sessionKeyFromSessionStorage = sessionStorage.getItem("wrappingKey");
+    let wrappingKey;
+    if (sessionKeyFromSessionStorage !== null) {
+      wrappingKey = await this.deriveWrappingKey();
+    } else {
+      wrappingKey = await this.deriveWrappingKey(masterKey, this.#salt);
+    }
+    this.#wrappingKey = wrappingKey;
     //console.log("Wrapping key is: ", wrappingKey);
     if (this.#localStorageAvailable) {
       if (localStorage.getItem("encryptedWrappedKey") !== null) {
@@ -706,7 +768,7 @@ class CryptoVault {
         console.log("No key pair in local storage so newely generated keys are: ", clientPublicKey, clientPrivateKey);
         
         const exportedPublicKey = await crypto.subtle.exportKey("spki", clientPublicKey);
-        localStorage.setItem("publicKey", new Uint8Array(exportedPublicKey).toBase64())
+        localStorage.setItem("publicKey", new Uint8Array(exportedPublicKey).toBase64());
         
         const exportedPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#clientPrivateKey);
         const privateKeyBuffer = await crypto.subtle.encrypt(
@@ -740,7 +802,7 @@ class CryptoVault {
         console.log("No key pair in local storage so newely generated server keys are: ", serverPublicKey, serverPrivateKey);
 
         const exportedServerPublicKey = await crypto.subtle.exportKey("spki", serverPublicKey);
-        localStorage.setItem("serverPublicKey", new Uint8Array(exportedServerPublicKey).toBase64())
+        localStorage.setItem("serverPublicKey", new Uint8Array(exportedServerPublicKey).toBase64());
         
         const exportedSeverPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#serverPrivateKey);
         const serverPrivateKeyBuffer = await crypto.subtle.encrypt(
@@ -832,8 +894,19 @@ class CryptoVault {
   }
 }
 
+const connectionTitle = document.createElement("h1");
+connectionTitle.id = "connectionTitle";
+connectionTitle.textContent = "Connecting to server...";
+document.body.appendChild(connectionTitle);
+
 let sessionVault = new CryptoVault();
 sessionVault.connect();
+
+registerPasswordInputConfirm.addEventListener('keypress', (event) => {
+  if (event.key === 'Enter') {
+    registrationSignupButton.click();
+  }
+});
 
 let timeoutID;
 registerPasswordInputConfirm.addEventListener('input', () => {
@@ -890,54 +963,102 @@ registerUsernameInput.addEventListener('input', () => {
 });
 
 loginPasswordInput.addEventListener('keypress', (event) => {
+  if (loginUsernameInput.value.length < 3)
   if (event.key === "Enter") {
     loginButton.click();
   }
 });
 
-loginButton.addEventListener('click', async() => {
-  const promiseToLoad = new Promise(async(resolve) => {
-    resolve(await sessionVault.load(loginPasswordInput.value, loginUsernameInput.value, false));
-  });
-  promiseToLoad.then(async () => {
-    if (sessionVault.username !== undefined) {
-      const messageJSON = JSON.stringify({ "messageType": "challenge", "username": sessionVault.username });
-      sessionVault.ws.send(messageJSON);
-      loginUsernameInput.value = "";
-      loginPasswordInput.value = "";
-      registerPasswordInput.value = "";
-      registerPasswordInputConfirm.value = "";
-      registrationForm.style.display = "none";
-      backupButton.disabled = false;
-      saveButton.disabled = false;
+loginPasswordInput.addEventListener('input', () => {``
+  clearTimeout(timeoutID);
+  timeoutID = setTimeout(() => {
+    if (loginPasswordInput.value.length === 0) {
+      loginPasswordInputLabel.textContent = 'Password';
+      loginPasswordInputLabel.style.color = 'black';
+      loginPasswordInput.style.backgroundColor = 'white';
+    } else if (loginPasswordInput.value.length < 8) {
+      loginPasswordInput.style.backgroundColor = 'pink';
+    } else {
+      loginPasswordInput.style.backgroundColor = 'white';
     }
-  });
+  }, 100);
 });
 
-registrationSignupButton.addEventListener('click', async() => {
+loginUsernameInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+  }
+});
+
+loginUsernameInput.addEventListener('input', () => {
+  clearTimeout(timeoutID);
+  timeoutID = setTimeout(() => {
+    if (loginUsernameInput.value.length === 0) {
+      loginUsernameInputLabel.textContent = 'Username';
+      loginUsernameInputLabel.style.color = 'black';
+      loginUsernameInput.style.backgroundColor = 'white';
+      return;
+    } else if (loginUsernameInput.value.length < 3) {
+      loginUsernameInput.style.backgroundColor = 'pink';
+    } else {
+      loginUsernameInputLabel.textContent = "Username";
+      loginUsernameInput.style.backgroundColor = 'white';
+    }
+  }, 100);
+});
+
+registrationSignupButton.addEventListener('click', async(e) => {
+  e.preventDefault();
   localStorage.setItem("username", registerUsernameInput.value)
+  await sessionVault.load(registerPasswordInput.value, registerUsernameInput.value, true);
   try {
-    await sessionVault.load(registerPasswordInput.value, registerUsernameInput.value, true);
+    if (sessionVault.publicKey !== undefined) {
+      sessionStorage.setItem("username", registerUsernameInput.value);
+    }
   } catch (e) {
     console.log("Loading failed with error: ", e);
   }
-  loginUsernameInput.value = "";
-  loginPasswordInput.value = "";
+  setTimeout(() => {
+    loginUsernameInput.value = "";
+    loginPasswordInput.value = "";
+    registerUsernameInput.value = "";
+    registerPasswordInput.value = "";
+    registerPasswordInputConfirm.value = "";
+  }, 100);
+  window.location.reload();
 });
 
-signupButton.addEventListener('click', () => {
-  loginUsernameInputLabel.textContent = "Username";
-  loginUsernameInputLabel.style.color = "black";
-  loginUsernameInput.value = "";
-  loginPasswordInput.value = "";
-  logInForm.style.display = 'none';
-  registrationForm.style.display = 'flex';
+logInForm.addEventListener('submit', async(e) => {
+  e.preventDefault();
+  if (loginUsernameInput.value.length > 2 && loginPasswordInput.value.length > 7) {
+    try {
+      await sessionVault.load(loginPasswordInput.value, loginUsernameInput.value, false);
+      if (sessionVault.username !== undefined) {
+        const messageJSON = JSON.stringify({ "messageType": "challenge", "username": sessionVault.username });
+        sessionVault.ws.send(messageJSON);
+        registrationForm.style.display = "none";
+        backupButton.disabled = false;
+        saveButton.disabled = false;
+      }
+    } catch(err) {
+      console.log(err);
+    }
+  } else {
+    return;
+  }
+  setTimeout(() => {
+    loginUsernameInput.value = "";
+    loginPasswordInput.value = "";
+    registerUsernameInput.value = "";
+    registerPasswordInput.value = "";
+    registerPasswordInputConfirm.value = "";
+  }, 500);
+  console.log("Login attempt");
 });
 
-backToLogin.addEventListener('click', () => {
-  registrationForm.style.display = 'none';
-  logInForm.style.display = 'flex';
-  loginUsernameInput.style.backgroundColor = 'white';
+logoutButton.addEventListener('click', () => {
+  sessionStorage.clear();
+  window.location.reload();
 });
 
 userInput.addEventListener("keypress", function(event) {
@@ -985,6 +1106,7 @@ saveButton.addEventListener('click', async () => {
   await sessionVault.encryptStoreAndSend(data);
   saveButton.disabled = false;
   userInput.value = "";
+  userInput.style.height = "2rem";
 });
 
 backupButton.addEventListener('click', async () => {

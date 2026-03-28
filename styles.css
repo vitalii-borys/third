@@ -15,7 +15,7 @@ table {
     margin: 15px;
     justify-items: center;
     word-break: break-word;
-    font-size: 22px;
+    font-size: x-large;
 }
 
 th,
@@ -36,20 +36,31 @@ form {
 }
 form input {
     padding: 3px;
-    font-size: 24px;
-    margin: 5px;
+    font-size: x-large;
+    margin: 0.3rem;
     border-radius: 5px;
 }
 form label {
     margin-top: 4px;
-    font-size: 20px;
+    font-size: x-large;
 }
 form button {
     border: 1px solidd black;
     border-radius: 5px;
     padding: 5px;
     margin-top: 5px;
-    font-size: 20px;
+    font-size: x-large;
+}
+
+#connectionTitle {
+    position: relative;
+    align-self: center;
+    top: 50%;
+}
+
+#stayLoggedInLabel {
+    color: rgb(235, 235, 235);
+    font-size: large;
 }
 
 #forms{
@@ -65,19 +76,42 @@ form button {
 }
 #logInForm {
     position: relative;
-    display: flex;
+    display: none;
     flex-direction: column;
 }
+#signupButton{
+    font-size: medium;
+}
 #signupButtonLabel {
-    font-size: 20px;
+    margin-top: 0.8rem;
+    font-size: large;
+}
+#registrationSignupButton {
+    margin-top: 0.8rem;
+    font-size: x-large;
+}
+#checkboxDiv{
+    margin-top: 1rem;
+    display: flex;
+}
+#loginButton{
+    margin-top: 1rem;
+    font-size: large;
+}
+#stayLoggedIn {
+    align-items: center;
+    width: 1.2rem;
+    height: 1.2rem;
 }
 #backToLogin {
-    font-size: 17px;
-    padding: 2px;
+    font-size: medium;
+    margin-top: 1rem;
+    padding: 0.3rem;
 }
 
 .contextMenu >*{
-    font-size: 20px;
+    font-size: large;
+    padding: 0.2rem;
     border: 1px solid black;
     border-radius: 4px;
 }
@@ -87,7 +121,7 @@ form button {
     flex-direction: column;
     position: absolute;
     left: 0px;
-    width: 25vw;
+    width: 28vw;
     height: 100vh;
     z-index: 2;
 }
@@ -96,7 +130,7 @@ form button {
     flex-direction: column;
     position: relative;
     left: 0px;
-    width: 25vw;
+    width: 28vw;
 }
 #contactDiv {
     display: flex;
@@ -111,32 +145,36 @@ form button {
 }
 #addContactButton {
     border-radius: 6px;
-    padding-left: 8px;
-    padding-right: 8px;
-    font-size: 22px;
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
+    font-size: medium;
 }
 #contactInput {
-    margin: 5px;
-    font-size: 22px;
+    margin: 0.2rem;
+    margin-left: 0.4rem;
+    padding: 0.1rem;
+    font-size: medium;
 }
 #contactButton {
     border-radius: 6px;
     padding-top: 3px;
     padding-bottom: 3px;
     margin: 5px;
-    font-size: 22px;
+    font-size: medium;
     position: relative;
 }
 #alertDiv {
-    font-size: 22px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 0.4rem;
+    margin: 5px;
+    font-size: medium;
     color: white;
-    border: 1px solid black;
-    border-radius: 6px;
 }
 .newContactDiv {
     padding: 4px;
     margin-top: 6px;
-    font-size: 24px;
+    font-size: medium;
     border: 1px solid grey;
     border-radius: 5px;
 }
@@ -159,7 +197,7 @@ form button {
     left: 50%;
     transform: translateX(-50%);
     width: fit-content;
-    font-size: 24px;
+    font-size: medium;
     flex: 1;
 }
 
@@ -167,6 +205,7 @@ form button {
     display: none;
     flex-direction: column;
     position: absolute;
+    align-items: end;
     right: 0px;
     width: 25vw;
     margin: 8px;
@@ -174,25 +213,35 @@ form button {
 #backupButton {
     position: relative;
     margin: 1vw;
+    padding: 0.3rem;
     flex: 1;
-    font-size: 18px;
+    font-size: medium;
     width: 18vw;
 }
 #uploadBackupButton {
     position: relative;
+    padding: 0.3rem;
     margin: 1vw;
     flex: 1;
-    font-size: 20px;
+    font-size: medium;
     width: 18vw;
 }
 #fileUpload {
     position: relative;
     margin: 1vw;
     flex: 1;
+    width: 18vw;
+}
+#logout {
+    position: relative;
+    margin: 1vw;
+    padding: 0.4rem;
+    font-size: medium;
+    width: fit-content;
 }
 
 #chatDiv{
-    min-width: 550px;
+    min-width: 340px;
     display: none;
     flex-direction: column;
     flex: 20;
@@ -203,7 +252,7 @@ form button {
     min-height: 0;
 }
 #userMessages {
-    min-width: 550px;
+    min-width: 340px;
     display: flex;
     flex-direction: column;
     /* justify-content: flex-end; */
@@ -221,7 +270,7 @@ form button {
     flex-direction: row;
     margin: 4px;
     background-color: rgb(70, 70, 70);    
-    font-size: 24px;
+    font-size:x-large ;
 }
 .message:hover {
     background-color: grey;
@@ -230,27 +279,27 @@ form button {
     margin-top: auto;
 }
 .mes {
-    padding-left: 6px;
-    padding-top: 2px;
-    padding-bottom: 2px;
+    padding-left: 0.3rem;
+    padding-top: 0.1rem;
+    padding-bottom: 0.1rem;
     flex: 8;
     overflow-wrap: anywhere;
     word-break: break-word;
 }
 .mesTime {
     flex: 1;
-    font-size: 18px;
+    font-size: medium;
 }
 .mesDay {
     transform: translateX(2vw);
     flex: 1;
-    font-size: 18px;
+    font-size: medium;
     width: 4vw;
 }
 
 #contextMenu {
     border: solid #ccc;
-    font-size: 20px;
+    font-size: large;
     border-radius: 4px;
     background-color: white;
     width: 19vw;
@@ -259,23 +308,28 @@ form button {
 #inputField {
     /* field-sizing: content; */
     align-items: center;
-    padding: 2vh;
+    padding: 1rem;
     display: flex;
     flex-direction: row;
     flex: 1;
 }
 #user_input {
-    min-height: 30px; 
+    border-radius: 5px;
+    min-height: 2rem; 
     resize: none;
     max-height: 20vh; 
     height: auto;
-    margin-right: 2vw;
-    margin-left: 6vw;
-    flex: 11;
-    font-size: 24px;
+    padding-left: 0.2rem;
+    padding-right: 0.2rem;
+    margin-right: 0.3rem;
+    margin-left: 0.1rem;
+    flex: 8;
+    font-size: xx-large;
 }
 #saveButton {
-    flex: 2;
-    font-size: 25px;
-    width: 10vw;
+    flex: 1;
+    padding: 0.2rem;
+    border-radius: 5px;
+    font-size: x-large;
+    width: fit-content;
 }

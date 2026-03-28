@@ -10,25 +10,26 @@
 <body>
     <div id="forms">
         <form id="logInForm">
-            <h1>Welcome</h1>
+            <h1 id="welcome">Welcome</h1>
             <label id="loginUsernameInputLabel" for="loginUsernameInput">Username</label>
-            <input name="username" id="loginUsernameInput" type="text" autocomplete="username">
+            <input readonly name="username" id="loginUsernameInput" type="text" autocomplete="username">
             <label id="loginPasswordInputLabel" for="loginPasswordInput">Password</label>
-            <input id="loginPasswordInput" type="password" autocomplete="current-password">
-            <button id="loginButton" type="button">Log in</button>
-            <label id="signupButtonLabel" for="signupButton">New user?</label>
-            <button id="signupButton" type="button">Sign up</button>
+            <input name="password" id="loginPasswordInput" type="password" autocomplete="current-password">
+            <div id="checkboxDiv">
+                <label id="stayLoggedInLabel" for="stayLoggedIn">Stay logged in on reload?</label>
+                <input id="stayLoggedIn" type="checkbox">
+            </div>
+            <button id="loginButton" type="submit">Log in</button>
         </form>
         <form id="registrationForm">
             <h1>Registration</h1>
             <label id="registerUsernameInputLabel" for="registerUsernameInput">Username</label>
             <input name="username" id="registerUsernameInput" type="text" autocomplete="username" required>
             <label id="registerPasswordInputLabel" for="registerPasswordInput">Password</label>
-            <input id="registerPasswordInput" type="password" autocomplete="new-password" required>
+            <input name="password" id="registerPasswordInput" type="password" autocomplete="new-password" required>
             <label id="registerPasswordInputConfirmLabel" for="registerPasswordInputConfirm">Confirm password</label>
-            <input id="registerPasswordInputConfirm" type="password" autocomplete="new-password" required name="up">
+            <input id="registerPasswordInputConfirm" type="password" autocomplete="new-password" required>
             <button id="registrationSignupButton" type="button">Sign up</button>
-            <button id="backToLogin" type="button">Back to log in</button>
         </form>
     </div>
         <div id="contactContainer">
@@ -52,9 +53,10 @@
         </table>
     </div>
     <div id="backupControls">
-        <button type="button" id="backupButton">Get backup</button>
         <input type="file" id="fileUpload" accept="application/json">
         <button type="button" id="uploadBackupButton">Upload backup</button>
+        <button type="button" id="backupButton">Get backup</button>
+        <button type="button" id="logout">Log out</button>
     </div>
     <div id="chatDiv">
         <div id="userMessages"></div>
