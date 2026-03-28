@@ -53,6 +53,8 @@ class CryptoVault {
   #clientPrivateKey;
   #wrappingKey;
   username;
+  usernameAvailable = null;
+  passwordCorrect = null;
   role;
   #encryptedPackages;
   timeOptions = {
@@ -211,7 +213,7 @@ class CryptoVault {
   async registerUser(username) { 
     const exportedPublicKey = await crypto.subtle.exportKey("spki", this.serverPublicKey);
     const publicKeyBuffer = new Uint8Array(exportedPublicKey).toBase64();
-    const messageJSON = JSON.stringify({ "messageType": "register", "username": username, "publicKey": publicKeyBuffer });
+    const messageJSON = JSON.stringify( {messageType: "register", username: username, publicKey: publicKeyBuffer });
     this.ws.send(messageJSON);
     console.log(messageJSON, "sent to server");
   }
@@ -237,7 +239,7 @@ class CryptoVault {
         console.log(this.username, "assigned from local storage")
         try {
           if (this.username !== undefined) {
-            const messageJSON = JSON.stringify({ "messageType": "challenge", "username": this.username });
+            const messageJSON = JSON.stringify( {messageType: "challenge", username: this.username} );
             this.ws.send(messageJSON);
             registrationForm.style.display = "none";
             backupButton.disabled = false;
@@ -263,25 +265,21 @@ class CryptoVault {
       switch(messageData.messageType) {
         case "checkUsername": {
           if (messageData.messageText !== undefined) {
+            this.usernameAvailable = null;
             registerUsernameInputLabel.textContent = `"Username ${messageData.username} ${messageData.messageText}`;
             registerUsernameInputLabel.style.color = 'pink';
           } else {
             if (!messageData.available) {
+              this.usernameAvailable = false;
               registerUsernameInputLabel.textContent = `"Username ${messageData.username} is not available`;
               registerUsernameInputLabel.style.color = 'pink';
             } else {
+              this.usernameAvailable = true;
               registerUsernameInputLabel.textContent = `Username ${messageData.username} is available`;
               registerUsernameInputLabel.style.color = 'lightgreen';
             }
             console.log(messageData);
           }
-        }
-        break;
-        case "registrationSuccess": {
-          registerPasswordInput.value = "";
-          registerPasswordInputConfirm.value = "";
-          registerUsernameInput.value = "";
-          console.log(messageData);
         }
         break;
         case "error": {
@@ -306,6 +304,7 @@ class CryptoVault {
         }
         break;
         case "initialMessage": {
+          registrationForm.style.display = "none";
           logInForm.style.display = "none";
           chatDiv.style.display = "flex";
           backupControls.style.display = "flex";
@@ -347,20 +346,22 @@ class CryptoVault {
                 console.log("Role is not set");
               }
             });
-          } else if (messageData.role === "user") {
+          } else if (messageData.userRole === "user") {
+            console.log(messageData);
             this.role = "user";
             console.log(this.role, "is yor role");
           }
           userMessages.innerHTML = "";
-          for (const msg of messageData.messages) {
+          /* for (const msg of messageData.messages) {
             await this.handleMessage(msg);
-          }
+          } */
           contactDiv.innerHTML = "";
-          const userContacts = JSON.parse(messageData.user.contacts);
+          const userContacts = messageData.conversations;
           userContacts.forEach(contact => {
+            const newContact = JSON.parse(JSON.stringify(contact));
             const newContactDiv = document.createElement('div');
             newContactDiv.classList = "newContactDiv";
-            newContactDiv.textContent = contact;
+            newContactDiv.textContent = newContact.contactusername;
             contactDiv.appendChild(newContactDiv);
           });
           scrollToBottom();
@@ -377,7 +378,7 @@ class CryptoVault {
         break;
         case "auth": {
           const signatureForServer = await this.signData(messageData.messageText);
-          const messageJSON = JSON.stringify({ "messageType": "auth", "messageText": signatureForServer, "username": this.username });
+          const messageJSON = JSON.stringify( {messageType: "auth", messageText: signatureForServer, "username": this.username });
           this.ws.send(messageJSON);
           //console.log(messageJSON, "sent");
         }
@@ -391,6 +392,13 @@ class CryptoVault {
         console.log("Disconnected manually. Stopping reconnection.");
         return;
       }
+
+      contactContainer.style.display = "none";
+      backupControls.style.display = "none";
+      chatDiv.style.display = "none";
+      logInForm.style.display = "none";
+      registrationForm.style.display = "none";
+      connectionTitle.style.display = "flex";
 
       this.reconnectionAttempts++;
       const baseWait = Math.min(this.maxReconnectInterval, 3000 * Math.pow(2, this.reconnectionAttempts - 1));
@@ -412,15 +420,15 @@ class CryptoVault {
     }
   }
 
-  async load(userPassword, username, registerUser) {
-    if (userPassword === undefined && username === undefined && registerUser === undefined) {
+  async load(userPassword, username) {
+    if (userPassword === undefined && username === undefined) {
       this.username = localStorage.getItem("usename");
       this.#sessionKey = await this.#getKey();
-      await sessionVault.encryptAndStorePrivatePublicKeys(false);
+      await sessionVault.encryptAndStorePrivatePublicKeys();
     } else {
       this.username = username;
       this.#sessionKey = await this.#getKey(userPassword);
-      await sessionVault.encryptAndStorePrivatePublicKeys(registerUser);
+      await sessionVault.encryptAndStorePrivatePublicKeys();
     }
     return this;
   }
@@ -462,7 +470,14 @@ class CryptoVault {
     const messageTime = new Date();
     this.currentMessageId++;
     const userMessage = this.createMessageElement(userInput, messageTime, this.currentMessageId);
-    const messageJSON = JSON.stringify({ "id": this.currentMessageId, "messageText": packageData, "username": this.username, "messageType": "message" });
+    const messageJSON = JSON.stringify( {
+      id: this.currentMessageId,
+      messageText: packageData,
+      messageType: "message",
+      conversationID: 1,
+      username: this.username,
+      contactUsername: "Alice"
+    });
     this.ws.send(messageJSON);
     console.log(messageJSON);
     userMessages.append(userMessage);
@@ -683,7 +698,7 @@ class CryptoVault {
     return keyPair;
   }
 
-  async encryptAndStorePrivatePublicKeys(registerUser) {
+  async encryptAndStorePrivatePublicKeys() {
     if (this.#localStorageAvailable) {
       if (localStorage.getItem("encryptedSessionKey") !== null
       && localStorage.getItem("encryptedPrivateKey") !== null && localStorage.getItem("publicKey") !== null
@@ -817,9 +832,6 @@ class CryptoVault {
         localStorage.setItem("encryptedServerPrivateKey", serverPrivateKeyBufferString);
       }
     }
-    if (registerUser) {
-      this.registerUser(this.username);
-    }
   }
 
   #initializeStorage() {
@@ -913,13 +925,16 @@ registerPasswordInputConfirm.addEventListener('input', () => {
   clearTimeout(timeoutID);
   timeoutID = setTimeout(() => {
     if (registerPasswordInputConfirm.value.length === 0) {
+      sessionVault.passwordCorrect = null;
       registerPasswordInputConfirmLabel.textContent = 'Write password';
       registerPasswordInputConfirmLabel.style.color = 'black';
       registerPasswordInputConfirm.style.backgroundColor = 'white';
     } else if (registerPasswordInputConfirm.value !== registerPasswordInput.value) {
+      sessionVault.passwordCorrect = false;
       registerPasswordInputConfirmLabel.textContent = "Passwords don't match";
       registerPasswordInputConfirm.style.backgroundColor = 'pink';
     } else {
+      sessionVault.passwordCorrect = true;
       registerPasswordInputConfirmLabel.textContent = 'Password confirmed';
       registerPasswordInputConfirm.style.backgroundColor = 'lightgreen';
     }
@@ -956,7 +971,7 @@ registerUsernameInput.addEventListener('input', () => {
     } else {
       registerUsernameInput.style.backgroundColor = 'white';
     }
-    const messageJSON = JSON.stringify({ "messageType": "checkUsername", "username": registerUsernameInput.value });
+    const messageJSON = JSON.stringify({ messageType: "checkUsername", "username": registerUsernameInput.value });
     sessionVault.ws.send(messageJSON);
     console.log(messageJSON, "sent to server");
   }, 100);
@@ -1008,33 +1023,32 @@ loginUsernameInput.addEventListener('input', () => {
 });
 
 registrationSignupButton.addEventListener('click', async(e) => {
-  e.preventDefault();
-  localStorage.setItem("username", registerUsernameInput.value)
-  await sessionVault.load(registerPasswordInput.value, registerUsernameInput.value, true);
-  try {
-    if (sessionVault.publicKey !== undefined) {
-      sessionStorage.setItem("username", registerUsernameInput.value);
-    }
-  } catch (e) {
-    console.log("Loading failed with error: ", e);
+  console.log(sessionVault.usernameAvailable, sessionVault.passwordCorrect);
+  if (sessionVault.usernameAvailable && sessionVault.passwordCorrect) {
+    console.log("All data input is correct. Trying to register.");
+    e.preventDefault();
+    localStorage.setItem("username", registerUsernameInput.value);
+    const newPromise = new Promise((resolve) => {
+      resolve (sessionVault.load(registerPasswordInput.value, registerUsernameInput.value));
+    });
+    newPromise.then(() => {
+      sessionVault.registerUser(sessionVault.username);
+      loginUsernameInput.value = "";
+      loginPasswordInput.value = "";
+      registerUsernameInput.value = "";
+      registerPasswordInput.value = "";
+      registerPasswordInputConfirm.value = "";
+    });
   }
-  setTimeout(() => {
-    loginUsernameInput.value = "";
-    loginPasswordInput.value = "";
-    registerUsernameInput.value = "";
-    registerPasswordInput.value = "";
-    registerPasswordInputConfirm.value = "";
-  }, 100);
-  window.location.reload();
 });
 
 logInForm.addEventListener('submit', async(e) => {
   e.preventDefault();
   if (loginUsernameInput.value.length > 2 && loginPasswordInput.value.length > 7) {
     try {
-      await sessionVault.load(loginPasswordInput.value, loginUsernameInput.value, false);
+      await sessionVault.load(loginPasswordInput.value, loginUsernameInput.value);
       if (sessionVault.username !== undefined) {
-        const messageJSON = JSON.stringify({ "messageType": "challenge", "username": sessionVault.username });
+        const messageJSON = JSON.stringify( {messageType: "challenge", "username": sessionVault.username });
         sessionVault.ws.send(messageJSON);
         registrationForm.style.display = "none";
         backupButton.disabled = false;
@@ -1086,7 +1100,7 @@ contactButton.addEventListener('click', () => {
       console.log("Aborted");
       throw new Error("No contact provided");
     }
-    const messageJSON = JSON.stringify({ "username": sessionVault.username, "messageType": "addContact", "contactUsername": newContact });
+    const messageJSON = JSON.stringify({ "username": sessionVault.username, "messageType": "addConversation", "contactUsername": newContact });
     sessionVault.ws.send(messageJSON);
     console.log(messageJSON, "sent to server");
   });
