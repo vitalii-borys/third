@@ -55,7 +55,7 @@ class CryptoVault {
   username;
   usernameAvailable = null;
   passwordCorrect = null;
-  role;
+  #role;
   #encryptedPackages;
   timeOptions = {
     timeZone: 'Europe/Kiev',
@@ -65,7 +65,7 @@ class CryptoVault {
   days = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
   months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   ws = null;
-  websocketServerLocation = "ws://localhost:8080";
+  websocketServerLocation = "ws://localhost:8080"; // will need to wss for deploying
   maxReconnectInterval = 60000;
   reconnectionAttempts = 0;
   forceClose = false;
@@ -77,14 +77,14 @@ class CryptoVault {
 
   disconnect() {
     this.forceClose = true;
-    if (ws) {
-      ws.close();
+    if (this.ws) {
+      this.ws.close();
     }
   }
 
   async handleMessage(message) {
     try {
-      let decryptedData = await sessionVault.decryptPackage(message.messageText);
+      let decryptedData = await this.decryptPackage(message.messageText);
       this.currentMessageId = message.id;
       console.log("this.currentMessageId", this.currentMessageId);
       const messageDiv = this.createMessageElement(decryptedData.message, decryptedData.receivedTimestamp, message.id);
@@ -94,26 +94,26 @@ class CryptoVault {
     }
   }
 
-  createMessageElement = function(message, timestamp, id) {
+  createMessageElement = (message, timestamp, id) => {
     const messageDiv = document.createElement('div');
     const messageTime = new Date(Number(timestamp));
     const formatted = `${String(messageTime.getHours()).padStart(2, 0)}:${String(messageTime.getMinutes()).padStart(2, 0)}`;
     messageDiv.classList = "message";
     const dayName = this.days[messageTime.getDay()];
-    let mes = document.createElement('div');
-    let mesDay = document.createElement('div');
-    let mesTime = document.createElement('div');
-    mes.classList = "mes";
-    mesDay.classList = "mesDay";
-    mesTime.classList = "mesTime";
-    mes.textContent = message;
-    mesDay.textContent = `${dayName}`;
-    mesTime.textContent = formatted;
+    let messageTextEl = document.createElement('div');
+    let messageDayEl = document.createElement('div');
+    let messageTimeEl = document.createElement('div');
+    messageTextEl.classList = "messageTextEl";
+    messageDayEl.classList = "messageDayEl";
+    messageTimeEl.classList = "messageTimeEl";
+    messageTextEl.textContent = message;
+    messageDayEl.textContent = `${dayName}`;
+    messageTimeEl.textContent = formatted;
     messageDiv.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       this.createContextMenu(e.pageX, e.pageY, id, messageDiv);
     });
-    messageDiv.append(mes, mesDay, mesTime);
+    messageDiv.append(messageTextEl, messageDayEl, messageTimeEl);
     return messageDiv;
   }
 
@@ -181,7 +181,7 @@ class CryptoVault {
           const messageToEditTimestamp = decryptedMessageToEdit.receivedTimestamp;
           console.log(messageToEditTimestamp);
           const updatedDiv = document.createElement("div");
-          updatedDiv.classList = "mes";
+          updatedDiv.classList = "messageTextEl";
           let newMessage;
           try {
             newMessage = await sessionVault.encryptPackage(inputElement.value, messageToEditTimestamp);
@@ -266,12 +266,12 @@ class CryptoVault {
         case "checkUsername": {
           if (messageData.messageText !== undefined) {
             this.usernameAvailable = null;
-            registerUsernameInputLabel.textContent = `"Username ${messageData.username} ${messageData.messageText}`;
+            registerUsernameInputLabel.textContent = `Username ${messageData.username} ${messageData.messageText}`;
             registerUsernameInputLabel.style.color = 'pink';
           } else {
             if (!messageData.available) {
               this.usernameAvailable = false;
-              registerUsernameInputLabel.textContent = `"Username ${messageData.username} is not available`;
+              registerUsernameInputLabel.textContent = `Username ${messageData.username} is not available`;
               registerUsernameInputLabel.style.color = 'pink';
             } else {
               this.usernameAvailable = true;
@@ -291,7 +291,7 @@ class CryptoVault {
         }
         break;
         case "noUser": {
-          const alertDiv = document.getElementById('alertDiv');
+          let alertDiv = document.getElementById('alertDiv');
           if (alertDiv === null) {
             const alertDiv = document.createElement('div');
             alertDiv.textContent = messageData.messageText;
@@ -311,8 +311,8 @@ class CryptoVault {
           contactContainer.style.display = "flex";
 
           if (messageData.userRole === "admin") {
-            this.role = "admin";
-            console.log(this.role, "is yor role");            
+            this.#role = "admin";
+            console.log(this.#role, "is yor role");            
             const adminbutton = document.getElementById("adminButton");
             adminbutton.style.display = "flex";
             const adminTable = document.getElementById("adminTable");
@@ -322,11 +322,11 @@ class CryptoVault {
                 adminbutton.textContent = "Hide database";
                 adminTable.style.display = "block";
               } else {
-                adminTableBody.innerHTML = "";
+                adminTableBody.innerHTML = ""; // will need to change to textContent
                 adminbutton.textContent = "Show database";
                 adminTable.style.display = "none";
               }
-              if (sessionVault.role === "admin") {
+              if (this.#role === "admin") {
                 adminTableBody.innerHTML = "";
                 let row;
                 messageData.users.forEach(user => {
@@ -340,7 +340,7 @@ class CryptoVault {
                   });
                   adminTableBody.innerHTML += row;
                 });
-              } else if (sessionVault.role === "user") {
+              } else if (this.#role === "user") {
                 console.log("You are user");
               } else {
                 console.log("Role is not set");
@@ -348,8 +348,8 @@ class CryptoVault {
             });
           } else if (messageData.userRole === "user") {
             console.log(messageData);
-            this.role = "user";
-            console.log(this.role, "is yor role");
+            this.#role = "user";
+            console.log(this.#role, "is yor role");
           }
           userMessages.innerHTML = "";
           /* for (const msg of messageData.messages) {
@@ -358,10 +358,14 @@ class CryptoVault {
           contactDiv.innerHTML = "";
           const userContacts = messageData.conversations;
           userContacts.forEach(contact => {
-            const newContact = JSON.parse(JSON.stringify(contact));
+            console.log(contact);
             const newContactDiv = document.createElement('div');
             newContactDiv.classList = "newContactDiv";
-            newContactDiv.textContent = newContact.contactusername;
+            if (contact.contactusername === this.username) {
+              newContactDiv.textContent = "My notes";
+            } else {
+              newContactDiv.textContent = contact.contactusername;
+            }
             contactDiv.appendChild(newContactDiv);
           });
           scrollToBottom();
@@ -373,7 +377,6 @@ class CryptoVault {
           newContactDiv.classList = "newContactDiv";
           newContactDiv.textContent = messageData.username;
           contactDiv.appendChild(newContactDiv);
-          document.getElementById("contactInput").value = "";
         }
         break;
         case "auth": {
@@ -388,7 +391,6 @@ class CryptoVault {
 
     this.ws.onclose = () => {
       if (this.forceClose) {
-        this.disconnect();
         console.log("Disconnected manually. Stopping reconnection.");
         return;
       }
@@ -415,20 +417,20 @@ class CryptoVault {
     
     this.ws.onerror = () => {
       console.log("Error. Ready state:", this.ws.readyState);
-      ws.close();
-      ws.onerror = null;
+      this.ws.close();
+      this.ws.onerror = null;
     }
   }
 
   async load(userPassword, username) {
     if (userPassword === undefined && username === undefined) {
-      this.username = localStorage.getItem("usename");
+      this.username = localStorage.getItem("username");
       this.#sessionKey = await this.#getKey();
-      await sessionVault.encryptAndStorePrivatePublicKeys();
+      await this.encryptAndStorePrivatePublicKeys();
     } else {
       this.username = username;
       this.#sessionKey = await this.#getKey(userPassword);
-      await sessionVault.encryptAndStorePrivatePublicKeys();
+      await this.encryptAndStorePrivatePublicKeys();
     }
     return this;
   }
@@ -449,8 +451,8 @@ class CryptoVault {
   }
 
   async signData(data) {
-    const enc = new TextEncoder();
-    const encodedData = enc.encode(data);
+    const encoder = new TextEncoder();
+    const encodedData = encoder.encode(data);
     let signature = await window.crypto.subtle.sign(
       "RSASSA-PKCS1-v1_5",
       this.#serverPrivateKey,
@@ -474,9 +476,7 @@ class CryptoVault {
       id: this.currentMessageId,
       messageText: packageData,
       messageType: "message",
-      conversationID: 1,
       username: this.username,
-      contactUsername: "Alice"
     });
     this.ws.send(messageJSON);
     console.log(messageJSON);
@@ -485,15 +485,15 @@ class CryptoVault {
   }
 
   #bigintToUint8Buffer (bigInt) {
-    let dv = new DataView(new ArrayBuffer(8), 0);
-    dv.setBigUint64(0, bigInt);
-    let uArr = new Uint8Array(dv.buffer);
-    return uArr;
+    let dataView = new DataView(new ArrayBuffer(8), 0);
+    dataView.setBigUint64(0, bigInt);
+    let uint8Array = new Uint8Array(dataView.buffer);
+    return uint8Array;
   }
 
   #uint8ArrayToBigint (bigIntBuffer) {
-    let dv = new DataView(bigIntBuffer.buffer, 0);
-    let myBigInt = dv.getBigUint64();
+    let dataView = new DataView(bigIntBuffer.buffer, 0);
+    let myBigInt = dataView.getBigUint64(0);
     return myBigInt;
   }
   
@@ -555,9 +555,9 @@ class CryptoVault {
     }
   }
 
-  async getMasterKey(rawPassword) {
-    const mKey = await window.crypto.subtle.importKey("raw", rawPassword, "PBKDF2", false, ["deriveKey"]);
-    return mKey;
+  async getMasterKey(encodedPassword) {
+    const masterKey = await window.crypto.subtle.importKey("raw", encodedPassword, "PBKDF2", false, ["deriveKey"]);
+    return masterKey;
   }
 
   async deriveWrappingKey(masterKey, salt) {
@@ -576,7 +576,7 @@ class CryptoVault {
         {
           name: "PBKDF2",
           salt: salt,
-          iterations: 100000,
+          iterations: 700000,
           hash: "SHA-256"
         },
         masterKey,
@@ -601,10 +601,10 @@ class CryptoVault {
   
   async #getKey(userPassword) {
     this.#initializeStorage();
-    var rawPassword = new TextEncoder().encode(userPassword);
+    var encodedPassword = new TextEncoder().encode(userPassword);
     userPassword = "";
-    const masterKey = await this.getMasterKey(rawPassword);
-    rawPassword = null;
+    const masterKey = await this.getMasterKey(encodedPassword);
+    encodedPassword = null;
     const sessionKeyFromSessionStorage = sessionStorage.getItem("wrappingKey");
     let wrappingKey;
     if (sessionKeyFromSessionStorage !== null) {
@@ -670,9 +670,9 @@ class CryptoVault {
     }
   }
 
-  async #generateKeyPair(destination) {
+  async #generateKeyPair(keyPairType) {
     let keyPair = null;
-    if (destination === "server") {
+    if (keyPairType === "server") {
       keyPair = window.crypto.subtle.generateKey(
         {
           name: "RSASSA-PKCS1-v1_5",
@@ -683,7 +683,7 @@ class CryptoVault {
         true,
         ["sign", "verify"]
       )
-    } else if (destination === "client") {      
+    } else if (keyPairType === "client") {      
       keyPair = await window.crypto.subtle.generateKey(
         {
           name: "RSA-OAEP",
@@ -773,11 +773,11 @@ class CryptoVault {
         this.#serverPrivateKey = serverPrivateKey;
 
       } else {
-        const clientKeyPair = this.#generateKeyPair("client");
-        const serverKeyPair = this.#generateKeyPair("server");
+        const clientKeyPair = await this.#generateKeyPair("client");
+        const serverKeyPair = await this.#generateKeyPair("server");
         
-        const clientPublicKey = (await clientKeyPair).publicKey;
-        const clientPrivateKey = (await clientKeyPair).privateKey;
+        const clientPublicKey = clientKeyPair.publicKey;
+        const clientPrivateKey = clientKeyPair.privateKey;
         this.clientPublicKey = clientPublicKey;
         this.#clientPrivateKey = clientPrivateKey;
         console.log("No key pair in local storage so newely generated keys are: ", clientPublicKey, clientPrivateKey);
@@ -810,8 +810,8 @@ class CryptoVault {
         const sessionKeyBufferString = new Uint8Array(sessionKeyBuffer).toBase64();
         localStorage.setItem("encryptedSessionKey", sessionKeyBufferString);
         
-        const serverPublicKey = (await serverKeyPair).publicKey;
-        const serverPrivateKey = (await serverKeyPair).privateKey;
+        const serverPublicKey = serverKeyPair.publicKey;
+        const serverPrivateKey = serverKeyPair.privateKey;
         this.serverPublicKey = serverPublicKey;
         this.#serverPrivateKey = serverPrivateKey;
         console.log("No key pair in local storage so newely generated server keys are: ", serverPublicKey, serverPrivateKey);
@@ -978,20 +978,19 @@ registerUsernameInput.addEventListener('input', () => {
 });
 
 loginPasswordInput.addEventListener('keypress', (event) => {
-  if (loginUsernameInput.value.length < 3)
-  if (event.key === "Enter") {
+  if (loginUsernameInput.value.length < 3 && event.key === "Enter") {
     loginButton.click();
   }
 });
 
-loginPasswordInput.addEventListener('input', () => {``
+loginPasswordInput.addEventListener('input', () => {
   clearTimeout(timeoutID);
   timeoutID = setTimeout(() => {
     if (loginPasswordInput.value.length === 0) {
       loginPasswordInputLabel.textContent = 'Password';
       loginPasswordInputLabel.style.color = 'black';
       loginPasswordInput.style.backgroundColor = 'white';
-    } else if (loginPasswordInput.value.length < 8) {
+    } else if (loginPasswordInput.value.length < 6) {
       loginPasswordInput.style.backgroundColor = 'pink';
     } else {
       loginPasswordInput.style.backgroundColor = 'white';
@@ -1044,7 +1043,7 @@ registrationSignupButton.addEventListener('click', async(e) => {
 
 logInForm.addEventListener('submit', async(e) => {
   e.preventDefault();
-  if (loginUsernameInput.value.length > 2 && loginPasswordInput.value.length > 7) {
+  if (loginUsernameInput.value.length > 2 && loginPasswordInput.value.length > 5) {
     try {
       await sessionVault.load(loginPasswordInput.value, loginUsernameInput.value);
       if (sessionVault.username !== undefined) {
@@ -1083,32 +1082,53 @@ userInput.addEventListener("keypress", function(event) {
 });
 
 contactButton.addEventListener('click', () => {
-  const contactInputDiv = document.createElement('div');
-  contactInputDiv.id = "contactInputDiv";
-  contactControls.appendChild(contactInputDiv);
-  const contactInput = document.createElement('input');
-  contactInput.id = "contactInput";
-  const addContactButton = document.createElement('button');
-  addContactButton.id = "addContactButton";
-  addContactButton.textContent = "Add";
-  contactInputDiv.appendChild(contactInput);
-  contactInputDiv.appendChild(addContactButton);
-  contactInput.focus();
-  addContactButton.addEventListener('click', () => {
-    const newContact = contactInput.value;
-    if (newContact === null || newContact.length === 0) {
-      console.log("Aborted");
-      throw new Error("No contact provided");
-    }
-    const messageJSON = JSON.stringify({ "username": sessionVault.username, "messageType": "addConversation", "contactUsername": newContact });
-    sessionVault.ws.send(messageJSON);
-    console.log(messageJSON, "sent to server");
-  });
-  contactInput.addEventListener('keydown', (event) => {
-    if (event.key === "Enter") {
-      addContactButton.click();
-    }
-  });
+  if (document.getElementById('alertDiv')) {
+    document.getElementById('alertDiv').remove();
+  }
+  const contactInputDiv = document.getElementById('contactInputDiv');
+  if (contactInputDiv) {
+    return;
+  } else {
+    const contactInputDiv = document.createElement('div');
+    contactInputDiv.id = "contactInputDiv";
+    contactControls.appendChild(contactInputDiv);
+    const contactInput = document.createElement('input');
+    contactInput.id = "contactInput";
+    contactInput.autocomplete = 'off';
+    const addContactButton = document.createElement('button');
+    addContactButton.id = "addContactButton";
+    addContactButton.textContent = "Add";
+    contactInputDiv.appendChild(contactInput);
+    contactInputDiv.appendChild(addContactButton);
+    contactInput.focus();
+    addContactButton.addEventListener('click', () => {
+      const newContact = contactInput.value;
+      if (newContact === null || newContact.length === 0) {
+        console.log("Aborted");
+        throw new Error("No contact provided");
+      }
+      const messageJSON = JSON.stringify({ "username": sessionVault.username, "messageType": "addConversation", "contactUsername": newContact });
+      sessionVault.ws.send(messageJSON);
+      console.log(messageJSON, "sent to server");
+    });
+    contactInput.addEventListener('keydown', (event) => {
+      if (event.key === "Enter") {
+        addContactButton.click();
+      }
+    });
+    setTimeout(() => {
+      document.addEventListener('click', (event) => {
+        if (document.getElementById('contactControls').contains(event.target)) {
+          return;
+        } else {
+          if (document.getElementById('alertDiv')) {
+            document.getElementById('alertDiv').remove();
+          }
+          contactInputDiv.remove();
+        }
+      },);
+    }, 5);
+  }
 });
 
 backupButton.disabled = true;
@@ -1125,9 +1145,9 @@ saveButton.addEventListener('click', async () => {
 
 backupButton.addEventListener('click', async () => {
   backupButton.disabled = true;
-  const backupPackegesJSON = sessionVault.getBackupData();
-  console.log(typeof backupPackegesJSON, backupPackegesJSON);
-  const packages = JSON.stringify(backupPackegesJSON);
+  const backupData = sessionVault.getBackupData();
+  console.log(typeof backupData, backupData);
+  const packages = JSON.stringify(backupData);
   const packagesBlob = new Blob([packages], { type: "application/json" });
   const backupURL = URL.createObjectURL(packagesBlob);
   backupButton.disabled = false;
@@ -1143,17 +1163,17 @@ backupButton.addEventListener('click', async () => {
   setTimeout(() => {
     URL.revokeObjectURL(backupURL);
     document.body.removeChild(backupLink);
-  }, 500);
+  }, 50);
 });
 
 uploadBackupButton.addEventListener("click", () => {
   const file = fileUpload.files[0];
-  let myImportedJSON;
+  let importedBackup;
   const reader = new FileReader();
   reader.onload = function() {
-    myImportedJSON = JSON.parse(reader.result);
-    localStorage.setItem("encryptedPackages", JSON.stringify(myImportedJSON.encryptedPackages));
-    localStorage.setItem("encryptedWrappedKey", myImportedJSON.encryptedWrappedKey);
+    importedBackup = JSON.parse(reader.result);
+    localStorage.setItem("encryptedPackages", JSON.stringify(importedBackup.encryptedPackages));
+    localStorage.setItem("encryptedWrappedKey", importedBackup.encryptedWrappedKey);
     const messageIvStart = crypto.getRandomValues(new Uint8Array(ivLength - 4));
     const messageIvEnd = new Uint8Array(4).fill(0);
     const messageIv = new Uint8Array(ivLength);
@@ -1162,11 +1182,11 @@ uploadBackupButton.addEventListener("click", () => {
     console.log("messageIv ", messageIv, messageIv.toString());
     localStorage.setItem("messageIv", messageIv.toBase64());
     console.log("messageIv ", messageIv, " stored in local storage: ", messageIv.toString());
-    localStorage.setItem("encryptedSessionKey", myImportedJSON.encryptedSessionKey);
-    localStorage.setItem("publicKey", myImportedJSON.publicKey);
-    localStorage.setItem("encryptedPrivateKey", myImportedJSON.encryptedPrivateKey);
-    localStorage.setItem("salt", myImportedJSON.salt);
-    localStorage.setItem("wrappingIv", myImportedJSON.wrappingIv);
+    localStorage.setItem("encryptedSessionKey", importedBackup.encryptedSessionKey);
+    localStorage.setItem("publicKey", importedBackup.publicKey);
+    localStorage.setItem("encryptedPrivateKey", importedBackup.encryptedPrivateKey);
+    localStorage.setItem("salt", importedBackup.salt);
+    localStorage.setItem("wrappingIv", importedBackup.wrappingIv);
     (async () => {
       try {
         await sessionVault.load();

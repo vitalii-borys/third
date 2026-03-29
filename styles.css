@@ -278,7 +278,7 @@ form button {
 .message:first-child {
     margin-top: auto;
 }
-.mes {
+.messageTextEl {
     padding-left: 0.3rem;
     padding-top: 0.1rem;
     padding-bottom: 0.1rem;
@@ -286,11 +286,11 @@ form button {
     overflow-wrap: anywhere;
     word-break: break-word;
 }
-.mesTime {
+.messageTimeEl {
     flex: 1;
     font-size: medium;
 }
-.mesDay {
+.messageDayEl {
     transform: translateX(2vw);
     flex: 1;
     font-size: medium;
