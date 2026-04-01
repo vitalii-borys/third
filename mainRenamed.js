@@ -1,4 +1,6 @@
-import {CryptoVault} from "/cryptoOperations.js";
+const timestampLength = 8;
+const saltLength = 16;
+const ivLength = 12;
 
 const userInput = document.getElementById('user_input');
 const userMessages = document.getElementById('userMessages');
@@ -39,13 +41,17 @@ function scrollToBottom() {
   });
 }
 
-class MainVault {
-  ivLength = 12;
-  saltLength = 16;
-  wrappingIv;
-  salt;
+class CryptoVault {
+  #wrappingIv;
+  #messageIv;
+  #salt;
+  #sessionKey;
   #localStorageAvailable;
-  messageIv;
+  serverPublicKey;
+  clientPublicKey;
+  #serverPrivateKey;
+  #clientPrivateKey;
+  #wrappingKey;
   username;
   usernameAvailable = null;
   passwordCorrect = null;
@@ -66,7 +72,7 @@ class MainVault {
   currentMessageId = 0;
 
   constructor() {
-    this.#localStorageAvailable = MainVault.storageAvailable("localStorage");
+    this.#localStorageAvailable = CryptoVault.storageAvailable("localStorage");
   }
 
   disconnect() {
@@ -78,7 +84,7 @@ class MainVault {
 
   async handleMessage(message) {
     try {
-      let decryptedData = await sessionCrypto.decryptPackage(message.messageText);
+      let decryptedData = await this.decryptPackage(message.messageText);
       this.currentMessageId = message.id;
       console.log("this.currentMessageId", this.currentMessageId);
       const messageDiv = this.createMessageElement(decryptedData.message, decryptedData.receivedTimestamp, message.id);
@@ -170,7 +176,7 @@ class MainVault {
           inputElement.replaceWith(unUpdatedMessage);
         }
         if (e.key === 'Enter') {
-          const decryptedMessageToEdit = await sessionCrypto.decryptPackage(this.#encryptedPackages.messages[messageId].text);
+          const decryptedMessageToEdit = await this.decryptPackage(this.#encryptedPackages.messages[messageId].text);
           console.log(decryptedMessageToEdit);
           const messageToEditTimestamp = decryptedMessageToEdit.receivedTimestamp;
           console.log(messageToEditTimestamp);
@@ -178,7 +184,7 @@ class MainVault {
           updatedDiv.classList = "messageTextEl";
           let newMessage;
           try {
-            newMessage = await sessionCrypto.encryptPackage(inputElement.value, messageToEditTimestamp);
+            newMessage = await this.encryptPackage(inputElement.value, messageToEditTimestamp);
           } catch (e) {
             console.log("Error", e);
           }
@@ -205,7 +211,7 @@ class MainVault {
   }
 
   async registerUser(username) { 
-    const exportedPublicKey = await crypto.subtle.exportKey("spki", await sessionCrypto.serverPublicKey);
+    const exportedPublicKey = await crypto.subtle.exportKey("spki", this.serverPublicKey);
     const publicKeyBuffer = new Uint8Array(exportedPublicKey).toBase64();
     const messageJSON = JSON.stringify( {messageType: "register", username: username, publicKey: publicKeyBuffer });
     this.ws.send(messageJSON);
@@ -228,10 +234,9 @@ class MainVault {
       }
       const keyString = sessionStorage.getItem("wrappingKey");
       if (keyString !== null) {
+        await this.load();
         this.username = localStorage.getItem("username");
-        console.log(this.username, "assigned from local storage");
-        sessionVault.initializeStorage();
-        sessionCrypto.load(null, sessionVault.salt, sessionVault.wrappingIv, true, sessionVault.messageIv);
+        console.log(this.username, "assigned from local storage")
         try {
           if (this.username !== undefined) {
             const messageJSON = JSON.stringify( {messageType: "challenge", username: this.username} );
@@ -299,8 +304,6 @@ class MainVault {
         }
         break;
         case "initialMessage": {
-          localStorage.setItem("username", sessionVault.username);
-          registerUsernameInput.value = "";
           registrationForm.style.display = "none";
           logInForm.style.display = "none";
           chatDiv.style.display = "flex";
@@ -376,9 +379,8 @@ class MainVault {
         }
         break;
         case "auth": {
-          console.log(sessionCrypto);
-          const signatureForServer = await sessionCrypto.signData(messageData.messageText);
-          const messageJSON = JSON.stringify( {messageType: "auth", messageText: signatureForServer, username: this.username });
+          const signatureForServer = await this.signData(messageData.messageText);
+          const messageJSON = JSON.stringify( {messageType: "auth", messageText: signatureForServer, "username": this.username });
           this.ws.send(messageJSON);
           //console.log(messageJSON, "sent");
         }
@@ -419,12 +421,25 @@ class MainVault {
     }
   }
 
+  async load(userPassword, username) {
+    if (userPassword === undefined && username === undefined) {
+      this.username = localStorage.getItem("username");
+      this.#sessionKey = await this.#getKey();
+      await this.encryptAndStorePrivatePublicKeys();
+    } else {
+      this.username = username;
+      this.#sessionKey = await this.#getKey(userPassword);
+      await this.encryptAndStorePrivatePublicKeys();
+    }
+    return this;
+  }
+
   getBackupData () {
-    this.initializeStorage();
+    this.#initializeStorage();
     const backupJSON = {
       "encryptedPackages": this.#encryptedPackages,
       "encryptedWrappedKey": localStorage.getItem("encryptedWrappedKey"),
-      "messageIv": localStorage.getItem("messageIv"),
+      "messageIV": localStorage.getItem("messageIv"),
       "encryptedSessionKey": localStorage.getItem("encryptedSessionKey"),
       "publicKey": localStorage.getItem("publicKey"),
       "encryptedPrivateKey": localStorage.getItem("encryptedPrivateKey"),
@@ -433,45 +448,429 @@ class MainVault {
     };
     return backupJSON;
   }
+
+  async signData(data) {
+    const encoder = new TextEncoder();
+    const encodedData = encoder.encode(data);
+    let signature = await window.crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      this.#serverPrivateKey,
+      encodedData
+    );
+    signature = new Uint8Array(signature).toBase64();
+    return signature;
+  }
+
+  async encryptStoreAndSend(userInput) {
+    if (userInput === "") {
+      return;
+    }
+    const packageData = await this.encryptPackage(userInput);
+    this.#encryptedPackages.messages.push({id: this.#encryptedPackages.messages[this.#encryptedPackages.messages.length - 1].id + 1, text: packageData})
+    localStorage.setItem("encryptedPackages", JSON.stringify({messages: this.#encryptedPackages.messages}));
+    const messageTime = new Date();
+    this.currentMessageId++;
+    const userMessage = this.createMessageElement(userInput, messageTime, this.currentMessageId);
+    const messageJSON = JSON.stringify( {
+      id: this.currentMessageId,
+      messageText: packageData,
+      messageType: "message",
+      username: this.username,
+    });
+    this.ws.send(messageJSON);
+    console.log(messageJSON);
+    userMessages.append(userMessage);
+    scrollToBottom();
+  }
+
+  #bigintToUint8Buffer (bigInt) {
+    let dataView = new DataView(new ArrayBuffer(8), 0);
+    dataView.setBigUint64(0, bigInt);
+    let uint8Array = new Uint8Array(dataView.buffer);
+    return uint8Array;
+  }
+
+  #uint8ArrayToBigint (bigIntBuffer) {
+    let dataView = new DataView(bigIntBuffer.buffer, 0);
+    let myBigInt = dataView.getBigUint64(0);
+    return myBigInt;
+  }
   
-  initializeStorage() {
+  async encryptPackage(data, timestamp) {
+    const encoder = new TextEncoder();
+    const encodedData = encoder.encode(data);
+    let additionalData;
+    if (timestamp !== undefined) {
+      additionalData = this.#bigintToUint8Buffer(timestamp);
+    } else {
+      additionalData = this.#bigintToUint8Buffer(BigInt(Date.now()));
+    }
+    this.#incrementIV(this.#messageIv);
+    localStorage.setItem("messageIv", this.#messageIv.toBase64());
+    const ciphertext = await crypto.subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv: this.#messageIv,
+        additionalData: additionalData
+      },
+      this.#sessionKey,
+      encodedData,
+    );
+    const ciphertextArray = new Uint8Array(ciphertext);
+    const packageData = new Uint8Array(timestampLength + ivLength + ciphertextArray.length);
+    packageData.set(additionalData, 0);
+    packageData.set(this.#messageIv, timestampLength);
+    packageData.set(ciphertextArray, timestampLength + ivLength);
+    const package64 = packageData.toBase64();
+    console.log("package64 :", typeof package64, package64);
+    return package64;
+  }
+
+  async decryptPackage(packageData) {
+    const packageToBytes = Uint8Array.fromBase64(packageData);
+    const receivedTimestampArray = packageToBytes.slice(0, timestampLength);
+    const receivedTimestamp = this.#uint8ArrayToBigint(receivedTimestampArray);
+    const receivedMessageIvArray = packageToBytes.slice(timestampLength, timestampLength + ivLength);
+    const receivedCiphertextArray = packageToBytes.slice(timestampLength + ivLength);
+    try {
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: receivedMessageIvArray,
+        additionalData: receivedTimestampArray
+      },
+      this.#sessionKey,
+      receivedCiphertextArray,
+      );
+      const message = new TextDecoder().decode(decryptedBuffer);
+      const decryptedData = {
+        message,
+        receivedTimestamp
+      };
+      return decryptedData;
+    } catch (e) {
+      console.log("Decryption failed with error: ", e);
+      return;
+    }
+  }
+
+  async getMasterKey(encodedPassword) {
+    const masterKey = await window.crypto.subtle.importKey("raw", encodedPassword, "PBKDF2", false, ["deriveKey"]);
+    return masterKey;
+  }
+
+  async deriveWrappingKey(masterKey, salt) {
+    if (masterKey === undefined && salt === undefined) {
+      const importKeyBuffer = Uint8Array.fromBase64(sessionStorage.getItem("wrappingKey"));
+      const decryptedKey = await window.crypto.subtle.importKey(
+        "raw",
+        importKeyBuffer,
+        "AES-GCM",
+        true,
+        ["encrypt", "decrypt"],
+      );
+      return decryptedKey;
+    } else {
+      const wrappingKey = await window.crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt: salt,
+          iterations: 700000,
+          hash: "SHA-256"
+        },
+        masterKey,
+        {
+          name: "AES-GCM",
+          length: 256,
+        },
+        true,
+        ["encrypt", "decrypt"],
+      );
+      this.#wrappingKey = wrappingKey;
+      const exportedWrappingKey = await window.crypto.subtle.exportKey("raw", wrappingKey);
+      const wrappingKeyBuffer = new Uint8Array(exportedWrappingKey).toBase64();
+      console.log(stayLoggedIn.checked);
+      if (stayLoggedIn.checked) {
+        sessionStorage.setItem("wrappingKey", wrappingKeyBuffer);
+      }
+      console.log("Session key is written to session storage");
+      return wrappingKey;
+    }
+  }
+  
+  async #getKey(userPassword) {
+    this.#initializeStorage();
+    var encodedPassword = new TextEncoder().encode(userPassword);
+    userPassword = "";
+    const masterKey = await this.getMasterKey(encodedPassword);
+    encodedPassword = null;
+    const sessionKeyFromSessionStorage = sessionStorage.getItem("wrappingKey");
+    let wrappingKey;
+    if (sessionKeyFromSessionStorage !== null) {
+      wrappingKey = await this.deriveWrappingKey();
+    } else {
+      wrappingKey = await this.deriveWrappingKey(masterKey, this.#salt);
+    }
+    this.#wrappingKey = wrappingKey;
+    //console.log("Wrapping key is: ", wrappingKey);
+    if (this.#localStorageAvailable) {
+      if (localStorage.getItem("encryptedWrappedKey") !== null) {
+        try {
+          const decryptBuffer = await crypto.subtle.decrypt(
+            {
+              name: "AES-GCM",
+              iv: this.#wrappingIv,
+            },
+            wrappingKey,
+            Uint8Array.fromBase64(localStorage.getItem("encryptedWrappedKey")),
+          );
+          const decryptedKey = await window.crypto.subtle.importKey(
+            "raw",
+            decryptBuffer,
+            { name: "AES-GCM" },
+            true,
+            ["encrypt", "decrypt"],
+          );
+          return decryptedKey;
+        } catch (e) {
+          console.log("Decryption failed with error: ", e);
+          throw new Error("Wrong password");
+        }
+      } else {
+        this.#incrementIV(this.#wrappingIv);
+        localStorage.setItem("wrappingIv", this.#wrappingIv.toBase64());
+        console.log(typeof this.#wrappingIv, "WrappingIv ", this.#wrappingIv, " stored in local storage: ", this.#wrappingIv.toString());
+        const generatedKey = await window.crypto.subtle.generateKey(
+          {
+            name: "AES-GCM",
+            length: 256,
+          },
+          true,
+          ["encrypt", "decrypt"],
+        );
+        console.log("No key in local storage so newely genegated random key is: ", typeof generatedKey, generatedKey);
+        const exportedKey = await window.crypto.subtle.exportKey("raw", generatedKey);
+        console.log(typeof exportedKey, "Exported Key is: ", exportedKey);
+        const encryptedWrappingKey = await crypto.subtle.encrypt(
+          {
+            name: "AES-GCM",
+            iv: this.#wrappingIv,
+          },
+          wrappingKey,
+          new Uint8Array(exportedKey),
+        );
+        const encryptedWrappedKey = new Uint8Array(encryptedWrappingKey).toBase64();
+        console.log(typeof encryptedWrappedKey, "Exported wrapped key is: ", encryptedWrappedKey, " written to local storage.");
+        localStorage.setItem("encryptedWrappedKey", encryptedWrappedKey);
+        return generatedKey;
+      }
+    } else {
+      console.log("Too bad, no local storage for us.");
+    }
+  }
+
+  async #generateKeyPair(keyPairType) {
+    let keyPair = null;
+    if (keyPairType === "server") {
+      keyPair = window.crypto.subtle.generateKey(
+        {
+          name: "RSASSA-PKCS1-v1_5",
+          modulusLength: 2048,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: "SHA-256",
+        },
+        true,
+        ["sign", "verify"]
+      )
+    } else if (keyPairType === "client") {      
+      keyPair = await window.crypto.subtle.generateKey(
+        {
+          name: "RSA-OAEP",
+          modulusLength: 4096,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: "SHA-256",
+        },
+        true,
+        ["encrypt", "decrypt"],
+      );
+    }
+    return keyPair;
+  }
+
+  async encryptAndStorePrivatePublicKeys() {
+    if (this.#localStorageAvailable) {
+      if (localStorage.getItem("encryptedSessionKey") !== null
+      && localStorage.getItem("encryptedPrivateKey") !== null && localStorage.getItem("publicKey") !== null
+      && localStorage.getItem("encryptedServerPrivateKey") !== null && localStorage.getItem("serverPublicKey") !== null) {
+
+        const publicKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("publicKey"));
+        const publicKey = await crypto.subtle.importKey(
+          "spki",
+          publicKeyBuffer,
+          { name: "RSA-OAEP", hash: "SHA-256" },
+          true,
+          ["encrypt"]
+        );
+        this.clientPublicKey = publicKey;
+        
+        const privateKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedPrivateKey"));
+        let decryptedPrivateKey;
+        try {
+          decryptedPrivateKey = await crypto.subtle.decrypt(
+            {
+              name: "AES-GCM",
+              iv: this.#wrappingIv
+            },
+            this.#wrappingKey,
+            privateKeyBuffer
+          );
+        } catch (e) {
+          console.log("Decryption failed with error: ", e);
+          throw new Error("Wrong password");
+        }
+        const privateKey = await window.crypto.subtle.importKey(
+            "pkcs8",
+            decryptedPrivateKey,
+            { name: "RSA-OAEP", hash: "SHA-256" },
+            true,
+            ["decrypt"],
+          );
+        this.#clientPrivateKey = privateKey;
+        
+        const serverPublicKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("serverPublicKey"));
+        const serverPublicKey = await crypto.subtle.importKey(
+          "spki",
+          serverPublicKeyBuffer,
+          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+          true,
+          ["verify"]
+        );
+        this.serverPublicKey = serverPublicKey;
+        
+        const serverPrivateKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedServerPrivateKey"));
+        let decryptedServerPrivateKey;
+        try {
+          decryptedServerPrivateKey = await crypto.subtle.decrypt(
+            {
+              name: "AES-GCM",
+              iv: this.#wrappingIv
+            },
+            this.#wrappingKey,
+            serverPrivateKeyBuffer
+          );
+        } catch (e) {
+          console.log("Decryption failed with error: ", e);
+          throw new Error("Wrong password");
+        }
+        const serverPrivateKey = await window.crypto.subtle.importKey(
+            "pkcs8",
+            decryptedServerPrivateKey,
+            { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+            true,
+            ["sign"],
+          );
+        this.#serverPrivateKey = serverPrivateKey;
+
+      } else {
+        const clientKeyPair = await this.#generateKeyPair("client");
+        const serverKeyPair = await this.#generateKeyPair("server");
+        
+        const clientPublicKey = clientKeyPair.publicKey;
+        const clientPrivateKey = clientKeyPair.privateKey;
+        this.clientPublicKey = clientPublicKey;
+        this.#clientPrivateKey = clientPrivateKey;
+        console.log("No key pair in local storage so newely generated keys are: ", clientPublicKey, clientPrivateKey);
+        
+        const exportedPublicKey = await crypto.subtle.exportKey("spki", clientPublicKey);
+        localStorage.setItem("publicKey", new Uint8Array(exportedPublicKey).toBase64());
+        
+        const exportedPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#clientPrivateKey);
+        const privateKeyBuffer = await crypto.subtle.encrypt(
+          {
+            name: "AES-GCM",
+            iv: this.#wrappingIv
+          },
+          this.#wrappingKey,
+          exportedPrivateKey
+        );
+        const privateKeyBufferString = new Uint8Array(privateKeyBuffer).toBase64();
+        localStorage.setItem("encryptedPrivateKey", privateKeyBufferString);
+        
+        const exportedSessionKey = await crypto.subtle.exportKey("raw", this.#sessionKey);
+        console.log(exportedSessionKey);
+        const sessionKeyBuffer = await crypto.subtle.encrypt(
+          {
+            name: "AES-GCM",
+            iv: this.#wrappingIv
+          },
+          this.#sessionKey,
+          exportedSessionKey
+        );
+        const sessionKeyBufferString = new Uint8Array(sessionKeyBuffer).toBase64();
+        localStorage.setItem("encryptedSessionKey", sessionKeyBufferString);
+        
+        const serverPublicKey = serverKeyPair.publicKey;
+        const serverPrivateKey = serverKeyPair.privateKey;
+        this.serverPublicKey = serverPublicKey;
+        this.#serverPrivateKey = serverPrivateKey;
+        console.log("No key pair in local storage so newely generated server keys are: ", serverPublicKey, serverPrivateKey);
+
+        const exportedServerPublicKey = await crypto.subtle.exportKey("spki", serverPublicKey);
+        localStorage.setItem("serverPublicKey", new Uint8Array(exportedServerPublicKey).toBase64());
+        
+        const exportedSeverPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#serverPrivateKey);
+        const serverPrivateKeyBuffer = await crypto.subtle.encrypt(
+          {
+            name: "AES-GCM",
+            iv: this.#wrappingIv
+          },
+          this.#wrappingKey,
+          exportedSeverPrivateKey
+        );
+        const serverPrivateKeyBufferString = new Uint8Array(serverPrivateKeyBuffer).toBase64();
+        localStorage.setItem("encryptedServerPrivateKey", serverPrivateKeyBufferString);
+      }
+    }
+  }
+
+  #initializeStorage() {
     if (this.#localStorageAvailable) {
       if (localStorage.getItem("encryptedPackages") !== null) {
         this.#encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
-        console.log("Encrypted packages from local storage: ", this.#encryptedPackages);
+        //console.log("Encrypted packages from local storage: ", this.#encryptedPackages);
       } else {
         localStorage.setItem("encryptedPackages", JSON.stringify({messages: [{id: 0, text: ""}]}));
         this.#encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
         console.log("No encrypted packages in local storage: ", this.#encryptedPackages, " created.");
       }
       if (localStorage.getItem("wrappingIv") !== null) {
-        this.wrappingIv = Uint8Array.fromBase64(localStorage.getItem("wrappingIv"));
-        console.log("WrappingIv from local storage is: ", this.wrappingIv.toString());
+        this.#wrappingIv = Uint8Array.fromBase64(localStorage.getItem("wrappingIv"));
+        //console.log("WrappingIv from local storage is: ", this.#wrappingIv.toString());
       } else {
-        this.wrappingIv = crypto.getRandomValues(new Uint8Array(this.ivLength));
-        localStorage.setItem("wrappingIv", this.wrappingIv.toBase64());
-        console.log(typeof this.wrappingIv, "WrappingIv ", this.wrappingIv, " stored in local storage: ", this.wrappingIv.toString());
+        this.#wrappingIv = crypto.getRandomValues(new Uint8Array(ivLength));
+        localStorage.setItem("wrappingIv", this.#wrappingIv.toBase64());
+        console.log(typeof this.#wrappingIv, "WrappingIv ", this.#wrappingIv, " stored in local storage: ", this.#wrappingIv.toString());
       }
       if (localStorage.getItem("messageIv") !== null) {
-        this.messageIv = Uint8Array.fromBase64(localStorage.getItem("messageIv"));
-        console.log("MessageIv from local storage: ", this.messageIv.toString());
+        this.#messageIv = Uint8Array.fromBase64(localStorage.getItem("messageIv"));
+        //console.log("MessageIv from local storage: ", this.#messageIv.toString());
       } else {
         console.log("No messageIv in local storage");
-        const messageIvStart = crypto.getRandomValues(new Uint8Array(this.ivLength - 4));
+        const messageIvStart = crypto.getRandomValues(new Uint8Array(ivLength - 4));
         const messageIvEnd = new Uint8Array(4).fill(0);
-        this.messageIv = new Uint8Array(this.ivLength);
-        this.messageIv.set(messageIvStart, 0);
-        this.messageIv.set(messageIvEnd, messageIvStart.length);
-        localStorage.setItem("messageIv", this.messageIv.toBase64());
-        console.log("messageIv ", this.messageIv, " stored in local storage: ", this.messageIv.toString());
+        this.#messageIv = new Uint8Array(ivLength);
+        this.#messageIv.set(messageIvStart, 0);
+        this.#messageIv.set(messageIvEnd, messageIvStart.length);
+        localStorage.setItem("messageIv", this.#messageIv.toBase64());
+        console.log("messageIv ", this.#messageIv, " stored in local storage: ", this.#messageIv.toString());
       }
       if (localStorage.getItem("salt") !== null) {
-        this.salt = Uint8Array.fromBase64(localStorage.getItem("salt"));
-        console.log("Salt from local storage: ", this.salt.toString());
+        this.#salt = Uint8Array.fromBase64(localStorage.getItem("salt"));
+        //console.log("Salt from local storage: ", this.#salt.toString());
       } else {
-        this.salt = crypto.getRandomValues(new Uint8Array(this.saltLength));
-        console.log("Salt :", this.salt);
-        var saltString = this.salt.toBase64();
+        this.#salt = crypto.getRandomValues(new Uint8Array(saltLength));
+        console.log("Salt :", this.#salt);
+        var saltString = this.#salt.toBase64();
         localStorage.setItem("salt", saltString);
         console.log("Salt :", saltString, " stored in local storage.");
       }
@@ -495,6 +894,15 @@ class MainVault {
       );
     }
   }
+
+  #incrementIV(buffer) {
+    for (let i = buffer.length - 1; i >= 0; i--) {
+      buffer[i]= (buffer[i] + 1) % 256;
+      if (buffer[i] !== 0) {
+        break;
+      }
+    }
+  }
 }
 
 const connectionTitle = document.createElement("h1");
@@ -502,9 +910,7 @@ connectionTitle.id = "connectionTitle";
 connectionTitle.textContent = "Connecting to server...";
 document.body.appendChild(connectionTitle);
 
-let sessionCrypto = new CryptoVault();
-
-let sessionVault = new MainVault();
+let sessionVault = new CryptoVault();
 sessionVault.connect();
 
 registerPasswordInputConfirm.addEventListener('keypress', (event) => {
@@ -548,7 +954,7 @@ registerPasswordInput.addEventListener('input', () => {
       registerPasswordInputLabel.textContent = 'Password is good';
       registerPasswordInput.style.backgroundColor = 'lightgreen';
     }
-  }, 100);
+  }, 500);
 });
 
 registerUsernameInput.addEventListener('input', () => {
@@ -564,7 +970,7 @@ registerUsernameInput.addEventListener('input', () => {
     } else {
       registerUsernameInput.style.backgroundColor = 'white';
     }
-    const messageJSON = JSON.stringify({ messageType: "checkUsername", username: registerUsernameInput.value });
+    const messageJSON = JSON.stringify({ messageType: "checkUsername", "username": registerUsernameInput.value });
     sessionVault.ws.send(messageJSON);
     console.log(messageJSON, "sent to server");
   }, 100);
@@ -619,14 +1025,15 @@ registrationSignupButton.addEventListener('click', async(e) => {
   if (sessionVault.usernameAvailable && sessionVault.passwordCorrect) {
     console.log("All data input is correct. Trying to register.");
     e.preventDefault();
+    localStorage.setItem("username", registerUsernameInput.value);
     const newPromise = new Promise((resolve) => {
-      resolve (sessionCrypto.load(registerPasswordInput.value, sessionVault.salt, sessionVault.wrappingIv, false, sessionVault.messageIv));
+      resolve (sessionVault.load(registerPasswordInput.value, registerUsernameInput.value));
     });
     newPromise.then(() => {
-      sessionVault.username = registerUsernameInput.value;
       sessionVault.registerUser(sessionVault.username);
       loginUsernameInput.value = "";
       loginPasswordInput.value = "";
+      registerUsernameInput.value = "";
       registerPasswordInput.value = "";
       registerPasswordInputConfirm.value = "";
     });
@@ -634,32 +1041,31 @@ registrationSignupButton.addEventListener('click', async(e) => {
 });
 
 logInForm.addEventListener('submit', async(e) => {
-    e.preventDefault();
-    if (loginUsernameInput.value.length > 2 && loginPasswordInput.value.length > 5) {
-        const newPromise = new Promise((resolve) => {
-          sessionVault.initializeStorage();
-          resolve (sessionCrypto.load(loginPasswordInput.value, sessionVault.salt, sessionVault.wrappingIv, stayLoggedIn.checked, sessionVault.messageIv));
-          console.log(sessionCrypto);  
-        });
-        newPromise.then(() => {
-            sessionVault.username = loginUsernameInput.value;
-            const messageJSON = JSON.stringify( {messageType: "challenge", username: sessionVault.username });
-            sessionVault.ws.send(messageJSON);
-            setTimeout(() => {
-                registrationForm.style.display = "none";
-                backupButton.disabled = false;
-                saveButton.disabled = false;
-                loginUsernameInput.value = "";
-                loginPasswordInput.value = "";
-                registerUsernameInput.value = "";
-                registerPasswordInput.value = "";
-                registerPasswordInputConfirm.value = "";
-            }, 500);
-            console.log("Login attempt");
-        });
-    } else {
-        return;
+  e.preventDefault();
+  if (loginUsernameInput.value.length > 2 && loginPasswordInput.value.length > 5) {
+    try {
+      await sessionVault.load(loginPasswordInput.value, loginUsernameInput.value);
+      if (sessionVault.username !== undefined) {
+        const messageJSON = JSON.stringify( {messageType: "challenge", "username": sessionVault.username });
+        sessionVault.ws.send(messageJSON);
+        registrationForm.style.display = "none";
+        backupButton.disabled = false;
+        saveButton.disabled = false;
+      }
+    } catch(err) {
+      console.log(err);
     }
+  } else {
+    return;
+  }
+  setTimeout(() => {
+    loginUsernameInput.value = "";
+    loginPasswordInput.value = "";
+    registerUsernameInput.value = "";
+    registerPasswordInput.value = "";
+    registerPasswordInputConfirm.value = "";
+  }, 500);
+  console.log("Login attempt");
 });
 
 logoutButton.addEventListener('click', () => {
@@ -730,7 +1136,7 @@ saveButton.disabled = true;
 saveButton.addEventListener('click', async () => {
   saveButton.disabled = true;
   const data = userInput.value;
-  await sessionCrypto.encryptStoreAndSend(data);
+  await sessionVault.encryptStoreAndSend(data);
   saveButton.disabled = false;
   userInput.value = "";
   userInput.style.height = "2rem";
@@ -780,6 +1186,13 @@ uploadBackupButton.addEventListener("click", () => {
     localStorage.setItem("encryptedPrivateKey", importedBackup.encryptedPrivateKey);
     localStorage.setItem("salt", importedBackup.salt);
     localStorage.setItem("wrappingIv", importedBackup.wrappingIv);
+    (async () => {
+      try {
+        await sessionVault.load();
+      } catch (e) {
+        console.log("Loading failed with error: ", e);
+      }
+    })();
   };
   reader.readAsText(file);
   console.log(typeof sessionVault, sessionVault);

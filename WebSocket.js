@@ -64,13 +64,13 @@ const selectedConversations = db.prepare(sql`
 `);
 
 wss.on("connection", ws => {
-  let buf;
   console.log("Client connected");
   let authenticatedUser = null;
 
   ws.on("message", async data => {
     try {
       const parsed = JSON.parse(data.toString());
+      console.log(parsed);
       const timeStamp = Date.now();
       console.log("user sent", parsed.messageType, "type of message");
       switch (parsed.messageType) {
@@ -105,7 +105,7 @@ wss.on("connection", ws => {
             console.log("Username", parsed.username, "is taken");
             ws.send(JSON.stringify( {messageType: "error", messageText: "username taken"} ));
           } else {
-            buf = randomBytes(32).toString("hex");
+            const buf = randomBytes(32).toString("hex");
             console.log("The random bytes of data generated is: " + typeof buf + buf, "is buf", parsed.username, "is username", parsed.publicKey, "is public key");
             insertUser.run(parsed.username, parsed.publicKey, buf);
             insertConversation.run(parsed.username, parsed.username);
@@ -150,7 +150,7 @@ wss.on("connection", ws => {
                 signatureBuffer,
                 bufferFromChallange
               );
-              console.log("result", result);
+              //console.log("result", result);
               if (result) {
                 authenticatedUser = getUser.get(parsed.username);
                 if (authenticatedUser.userRole === "admin") {
@@ -174,7 +174,7 @@ wss.on("connection", ws => {
                     conversations: allConversations
                   };
                   ws.send(JSON.stringify(payloadObject));
-                  console.log("All conversations sent to", authenticatedUser.username);
+                  console.log("All conversations sent to", authenticatedUser.username, "\n");
                 } else {
                   ws.send(JSON.stringify( {messageType: "noAuth"} ));
                   console.log("No auth sent to", parsed.username);
