@@ -1,5 +1,4 @@
 import {CryptoVault} from "/cryptoOperations.js";
-import {StorageManager} from "/storageManager.js";
 
 const userInput = document.getElementById('user_input');
 const userMessages = document.getElementById('userMessages');
@@ -45,6 +44,7 @@ class MainVault {
   saltLength = 16;
   wrappingIv;
   salt;
+  #localStorageAvailable;
   messageIv;
   username;
   usernameAvailable = null;
@@ -66,6 +66,7 @@ class MainVault {
   currentMessageId = 0;
 
   constructor() {
+    this.#localStorageAvailable = MainVault.storageAvailable("localStorage");
   }
 
   disconnect() {
@@ -229,7 +230,8 @@ class MainVault {
       if (keyString !== null) {
         this.username = localStorage.getItem("username");
         console.log(this.username, "assigned from local storage");
-        sessionCrypto.load(null, true);
+        sessionVault.initializeStorage();
+        sessionCrypto.load(null, sessionVault.salt, sessionVault.wrappingIv, true, sessionVault.messageIv);
         try {
           if (this.username !== undefined) {
             const messageJSON = JSON.stringify( {messageType: "challenge", username: this.username} );
@@ -247,7 +249,7 @@ class MainVault {
           registerUsernameInput.value = "";
           registerPasswordInput.value = "";
           registerPasswordInputConfirm.value = "";
-        }, 100);
+        }, 500);
       }
       this.reconnectionAttempts = 0;
     };
@@ -344,6 +346,7 @@ class MainVault {
           } else if (messageData.userRole === "user") {
             console.log(messageData);
             this.#role = "user";
+            console.log(this.#role, "is yor role");
           }
           userMessages.innerHTML = "";
           /* for (const msg of messageData.messages) {
@@ -373,6 +376,7 @@ class MainVault {
         }
         break;
         case "auth": {
+          console.log(sessionCrypto);
           const signatureForServer = await sessionCrypto.signData(messageData.messageText);
           const messageJSON = JSON.stringify( {messageType: "auth", messageText: signatureForServer, username: this.username });
           this.ws.send(messageJSON);
@@ -414,6 +418,83 @@ class MainVault {
       this.ws.onerror = null;
     }
   }
+
+  getBackupData () {
+    this.initializeStorage();
+    const backupJSON = {
+      "encryptedPackages": this.#encryptedPackages,
+      "encryptedWrappedKey": localStorage.getItem("encryptedWrappedKey"),
+      "messageIv": localStorage.getItem("messageIv"),
+      "encryptedSessionKey": localStorage.getItem("encryptedSessionKey"),
+      "publicKey": localStorage.getItem("publicKey"),
+      "encryptedPrivateKey": localStorage.getItem("encryptedPrivateKey"),
+      "salt": localStorage.getItem("salt"),
+      "wrappingIv": localStorage.getItem("wrappingIv")
+    };
+    return backupJSON;
+  }
+  
+  initializeStorage() {
+    if (this.#localStorageAvailable) {
+      if (localStorage.getItem("encryptedPackages") !== null) {
+        this.#encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
+        console.log("Encrypted packages from local storage: ", this.#encryptedPackages);
+      } else {
+        localStorage.setItem("encryptedPackages", JSON.stringify({messages: [{id: 0, text: ""}]}));
+        this.#encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
+        console.log("No encrypted packages in local storage: ", this.#encryptedPackages, " created.");
+      }
+      if (localStorage.getItem("wrappingIv") !== null) {
+        this.wrappingIv = Uint8Array.fromBase64(localStorage.getItem("wrappingIv"));
+        console.log("WrappingIv from local storage is: ", this.wrappingIv.toString());
+      } else {
+        this.wrappingIv = crypto.getRandomValues(new Uint8Array(this.ivLength));
+        localStorage.setItem("wrappingIv", this.wrappingIv.toBase64());
+        console.log(typeof this.wrappingIv, "WrappingIv ", this.wrappingIv, " stored in local storage: ", this.wrappingIv.toString());
+      }
+      if (localStorage.getItem("messageIv") !== null) {
+        this.messageIv = Uint8Array.fromBase64(localStorage.getItem("messageIv"));
+        console.log("MessageIv from local storage: ", this.messageIv.toString());
+      } else {
+        console.log("No messageIv in local storage");
+        const messageIvStart = crypto.getRandomValues(new Uint8Array(this.ivLength - 4));
+        const messageIvEnd = new Uint8Array(4).fill(0);
+        this.messageIv = new Uint8Array(this.ivLength);
+        this.messageIv.set(messageIvStart, 0);
+        this.messageIv.set(messageIvEnd, messageIvStart.length);
+        localStorage.setItem("messageIv", this.messageIv.toBase64());
+        console.log("messageIv ", this.messageIv, " stored in local storage: ", this.messageIv.toString());
+      }
+      if (localStorage.getItem("salt") !== null) {
+        this.salt = Uint8Array.fromBase64(localStorage.getItem("salt"));
+        console.log("Salt from local storage: ", this.salt.toString());
+      } else {
+        this.salt = crypto.getRandomValues(new Uint8Array(this.saltLength));
+        console.log("Salt :", this.salt);
+        var saltString = this.salt.toBase64();
+        localStorage.setItem("salt", saltString);
+        console.log("Salt :", saltString, " stored in local storage.");
+      }
+    }
+  }
+  
+  static storageAvailable(type) {
+    let storage;
+    try {
+      storage = window[type];
+      const x = "__storage_test__";
+      storage.setItem(x, x);
+      storage.removeItem(x);
+      return true;
+    } catch (e) {
+      return (
+        e instanceof DOMException &&
+        e.name === "QuotaExceededError" &&
+        storage &&
+        storage.length !== 0
+      );
+    }
+  }
 }
 
 const connectionTitle = document.createElement("h1");
@@ -421,11 +502,9 @@ connectionTitle.id = "connectionTitle";
 connectionTitle.textContent = "Connecting to server...";
 document.body.appendChild(connectionTitle);
 
+let sessionCrypto = new CryptoVault();
 
-
-const storageManager = new StorageManager();
-const sessionCrypto = new CryptoVault(storageManager);
-const sessionVault = new MainVault();
+let sessionVault = new MainVault();
 sessionVault.connect();
 
 registerPasswordInputConfirm.addEventListener('keypress', (event) => {
@@ -541,13 +620,11 @@ registrationSignupButton.addEventListener('click', async(e) => {
     console.log("All data input is correct. Trying to register.");
     e.preventDefault();
     const newPromise = new Promise((resolve) => {
-      resolve (sessionCrypto.load(registerPasswordInput.value, false));
+      resolve (sessionCrypto.load(registerPasswordInput.value, sessionVault.salt, sessionVault.wrappingIv, false, sessionVault.messageIv));
     });
     newPromise.then(() => {
       sessionVault.username = registerUsernameInput.value;
       sessionVault.registerUser(sessionVault.username);
-      backupButton.disabled = false;
-      saveButton.disabled = false;
       loginUsernameInput.value = "";
       loginPasswordInput.value = "";
       registerPasswordInput.value = "";
@@ -560,7 +637,8 @@ logInForm.addEventListener('submit', async(e) => {
     e.preventDefault();
     if (loginUsernameInput.value.length > 2 && loginPasswordInput.value.length > 5) {
         const newPromise = new Promise((resolve) => {
-          resolve (sessionCrypto.load(loginPasswordInput.value, stayLoggedIn.checked));
+          sessionVault.initializeStorage();
+          resolve (sessionCrypto.load(loginPasswordInput.value, sessionVault.salt, sessionVault.wrappingIv, stayLoggedIn.checked, sessionVault.messageIv));
           console.log(sessionCrypto);  
         });
         newPromise.then(() => {

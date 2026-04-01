@@ -1,8 +1,8 @@
 
 export class CryptoVault {
+    #storageManager;
     timestampLength = 8;
     ivLength = 12;
-    saltLength = 16;
     #messageIv;
     #serverPrivateKey;
     serverPublicKey;
@@ -11,8 +11,8 @@ export class CryptoVault {
     #clientPrivateKey;
     clientPublicKey;
 
-    constructor() {
-        console.log("Hello from vault");
+    constructor(storageManager) {
+        this.#storageManager = storageManager;
     }
 
     async signData(data) {
@@ -40,15 +40,15 @@ export class CryptoVault {
         return myBigInt;
     }
 
-    async load(userPassword, salt, wrappingIv, stayLoggedIn, messageIv) {
-        this.#messageIv = messageIv;
-        console.log(this.#messageIv, "messageIv assigned at load");
-        let sessionKey = localStorage.getItem("encryptedSessionKey");
+    async load(userPassword, stayLoggedIn) {
+        this.#messageIv = this.#storageManager.getOrCreateMessageIv();
+        const wrappingIv = this.#storageManager.getOrCreateWrappingIv();
+        let sessionKey = this.#storageManager.getEncryptedSessionKey();
         if (sessionKey !== null) {
-            this.#sessionKey = await this.#getKey(userPassword, salt, wrappingIv, stayLoggedIn);
+            this.#sessionKey = await this.#getKey(userPassword, stayLoggedIn);
             await this.loadKeysFromStorage(wrappingIv);
         } else {
-            this.#sessionKey = await this.#getKey(userPassword, salt, wrappingIv, stayLoggedIn);
+            this.#sessionKey = await this.#getKey(userPassword, stayLoggedIn);
             await this.generaTeAndStoreNewKeys(wrappingIv);
         }
         return this;
@@ -138,7 +138,7 @@ export class CryptoVault {
     }
 
     async loadWrappingKeyFromSession() {
-        const importKeyBuffer = Uint8Array.fromBase64(sessionStorage.getItem("wrappingKey"));
+        const importKeyBuffer = this.#storageManager.getSessionWrappingKey();
         const decryptedKey = await window.crypto.subtle.importKey(
             "raw",
             importKeyBuffer,
@@ -149,14 +149,15 @@ export class CryptoVault {
         return decryptedKey;
     }
   
-    async #getKey(userPassword, salt, wrappingIv, stayLoggedIn) {
-        console.log("userpassword", userPassword, "salt", salt, "wrappingIv", wrappingIv, "stayLoggedIn", stayLoggedIn);
+    async #getKey(userPassword, stayLoggedIn) {
+        const salt = this.#storageManager.getOrCreateSalt();
+        const wrappingIv = this.#storageManager.getOrCreateWrappingIv();
         var encodedPassword = new TextEncoder().encode(userPassword);
         userPassword = "";
         const masterKey = await window.crypto.subtle.importKey("raw", encodedPassword, "PBKDF2", false, ["deriveKey"]);
         encodedPassword = null;
         let wrappingKey;
-        let storedKey = sessionStorage.getItem("wrappingKey");
+        let storedKey = this.#storageManager.getSessionWrappingKey();
         if (storedKey !== null) {
             wrappingKey = await this.loadWrappingKeyFromSession();
             console.log("Wrapping key from session storage is: ", wrappingKey);
@@ -166,7 +167,8 @@ export class CryptoVault {
         }
         this.#wrappingKey = wrappingKey;
 
-        if (localStorage.getItem("encryptedWrappedKey") !== null) {
+        const wrappedKeyBuffer = this.#storageManager.getEncryptedWrappedKey();
+        if (wrappedKeyBuffer !== null) {
             try {
                 const decryptBuffer = await crypto.subtle.decrypt(
                     {
@@ -174,7 +176,7 @@ export class CryptoVault {
                         iv: wrappingIv,
                     },
                     wrappingKey,
-                    Uint8Array.fromBase64(localStorage.getItem("encryptedWrappedKey")),
+                    wrappedKeyBuffer,
                 );
                 const decryptedKey = await window.crypto.subtle.importKey(
                     "raw",
@@ -189,9 +191,6 @@ export class CryptoVault {
                 throw new Error("Wrong password");
             }
         } else {
-            this.#incrementIv(wrappingIv);
-            localStorage.setItem("wrappingIv", wrappingIv.toBase64());
-            console.log(typeof wrappingIv, "WrappingIv ", wrappingIv, " stored in local storage: ", wrappingIv.toString());
             const generatedKey = await window.crypto.subtle.generateKey(
                 {
                     name: "AES-GCM",
@@ -200,7 +199,7 @@ export class CryptoVault {
                 true,
                 ["encrypt", "decrypt"],
             );
-            console.log("No key in local storage so newely genegated random key is: ", typeof generatedKey, generatedKey);
+            console.log("No key in local storage so newely genegated random key is: ", generatedKey);
             const exportedKey = await window.crypto.subtle.exportKey("raw", generatedKey);
             console.log(typeof exportedKey, "Exported Key is: ", exportedKey);
             const encryptedWrappingKey = await crypto.subtle.encrypt(
@@ -211,9 +210,7 @@ export class CryptoVault {
                 wrappingKey,
                 new Uint8Array(exportedKey),
             );
-            const encryptedWrappedKey = new Uint8Array(encryptedWrappingKey).toBase64();
-            console.log(typeof encryptedWrappedKey, "Exported wrapped key is: ", encryptedWrappedKey, " written to local storage.");
-            localStorage.setItem("encryptedWrappedKey", encryptedWrappedKey);
+            this.#storageManager.saveEncryptedWrappedKey(encryptedWrappingKey);
             return generatedKey;
         }
     }
@@ -247,7 +244,7 @@ export class CryptoVault {
     }
 
     async loadKeysFromStorage(wrappingIv) {
-        const publicKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("publicKey"));
+        const publicKeyBuffer = this.#storageManager.getPublicKey();
         const publicKey = await crypto.subtle.importKey(
             "spki",
             publicKeyBuffer,
@@ -259,7 +256,7 @@ export class CryptoVault {
         );
         this.clientPublicKey = publicKey;
         
-        const privateKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedPrivateKey"));
+        const privateKeyBuffer = this.#storageManager.getEncryptedPrivateKey();
         let decryptedPrivateKey;
         try {
             decryptedPrivateKey = await crypto.subtle.decrypt(
@@ -285,7 +282,7 @@ export class CryptoVault {
         );
         this.#clientPrivateKey = privateKey;
         
-        const serverPublicKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("serverPublicKey"));
+        const serverPublicKeyBuffer = this.#storageManager.getServerPublicKey();
         const serverPublicKey = await crypto.subtle.importKey(
             "spki",
             serverPublicKeyBuffer,
@@ -297,7 +294,7 @@ export class CryptoVault {
         );
         this.serverPublicKey = serverPublicKey;
         
-        const serverPrivateKeyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedServerPrivateKey"));
+        const serverPrivateKeyBuffer = this.#storageManager.getEncryptedServerPrivateKey();
         let decryptedServerPrivateKey;
         try {
             decryptedServerPrivateKey = await crypto.subtle.decrypt(
@@ -327,18 +324,20 @@ export class CryptoVault {
 
     async generaTeAndStoreNewKeys(wrappingIv) {    
         const clientKeyPair = await this.#generateKeyPair("client");
+        console.log("Client Key Pair generated as:", clientKeyPair);
         const serverKeyPair = await this.#generateKeyPair("server");
         const clientPublicKey = clientKeyPair.publicKey;
+        console.log("Client public key generated as:", clientPublicKey);
         const clientPrivateKey = clientKeyPair.privateKey;
         this.clientPublicKey = clientPublicKey;
         this.#clientPrivateKey = clientPrivateKey;
         console.log("No key pair in local storage so newely generated keys are: ", clientPublicKey, clientPrivateKey);
         
         const exportedPublicKey = await crypto.subtle.exportKey("spki", clientPublicKey);
-        localStorage.setItem("publicKey", new Uint8Array(exportedPublicKey).toBase64());
+        this.#storageManager.savePublicKey(exportedPublicKey);
         
         const exportedPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#clientPrivateKey);
-        const privateKeyBuffer = await crypto.subtle.encrypt(
+        const encryptedPrivateKey = await crypto.subtle.encrypt(
             {
                 name: "AES-GCM",
                 iv: wrappingIv
@@ -346,12 +345,11 @@ export class CryptoVault {
             this.#wrappingKey,
             exportedPrivateKey
         );
-        const privateKeyBufferString = new Uint8Array(privateKeyBuffer).toBase64();
-        localStorage.setItem("encryptedPrivateKey", privateKeyBufferString);
+        this.#storageManager.saveEncryptedPrivateKey(encryptedPrivateKey);
         
         const exportedSessionKey = await crypto.subtle.exportKey("raw", this.#sessionKey);
         console.log(exportedSessionKey);
-        const sessionKeyBuffer = await crypto.subtle.encrypt(
+        const encryptedSessionKey = await crypto.subtle.encrypt(
             {
                 name: "AES-GCM",
                 iv: wrappingIv
@@ -359,8 +357,7 @@ export class CryptoVault {
             this.#sessionKey,
             exportedSessionKey
         );
-        const sessionKeyBufferString = new Uint8Array(sessionKeyBuffer).toBase64();
-        localStorage.setItem("encryptedSessionKey", sessionKeyBufferString);
+        this.#storageManager.saveEncryptedSessionKey(encryptedSessionKey);
         
         const serverPublicKey = serverKeyPair.publicKey;
         const serverPrivateKey = serverKeyPair.privateKey;
@@ -369,10 +366,10 @@ export class CryptoVault {
         console.log("No key pair in local storage so newely generated server keys are: ", serverPublicKey, serverPrivateKey);
 
         const exportedServerPublicKey = await crypto.subtle.exportKey("spki", serverPublicKey);
-        localStorage.setItem("serverPublicKey", new Uint8Array(exportedServerPublicKey).toBase64());
+        this.#storageManager.saveServerPublicKey(exportedServerPublicKey);
         
         const exportedSeverPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#serverPrivateKey);
-        const serverPrivateKeyBuffer = await crypto.subtle.encrypt(
+        const encryptedServerPrivateKey = await crypto.subtle.encrypt(
             {
                 name: "AES-GCM",
                 iv: wrappingIv
@@ -380,8 +377,7 @@ export class CryptoVault {
             this.#wrappingKey,
             exportedSeverPrivateKey
         );
-        const serverPrivateKeyBufferString = new Uint8Array(serverPrivateKeyBuffer).toBase64();
-        localStorage.setItem("encryptedServerPrivateKey", serverPrivateKeyBufferString);
+        this.#storageManager.saveEncryptedServerPrivateKey(encryptedServerPrivateKey);
     }
 
     #incrementIv(buffer) {
