@@ -111,7 +111,6 @@ export class CryptoVault {
     }
 
     async deriveWrappingKeyFromPassword(masterKey, salt, stayLoggedIn) {
-        console.log(masterKey, salt, stayLoggedIn);
         const wrappingKey = await window.crypto.subtle.deriveKey(
             {
                 name: "PBKDF2",

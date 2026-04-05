@@ -1,18 +1,24 @@
 export class StorageManager {
-    ivLength = 12;
-    saltLength = 16;
-    #encryptedPackages;
-
+    
     constructor() {
-        this.#encryptedPackages = this.initPackages();
+        this.encryptedPackages = this.initPackages();
+        this.ivLength = 12;
+        this.saltLength = 16;
+        this.encryptedPackages;
     }
 
     initPackages() {
         if (localStorage.getItem("encryptedPackages") === null) {
             localStorage.setItem("encryptedPackages", JSON.stringify({messages: [{id: 0, text: ""}]}));
-            this.#encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
+            this.encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
             //console.log("No encrypted packages in local storage. Empty ", this.#encryptedPackages, " created.");
         }
+    }
+
+    getEncryptedPackages() {
+        this.encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
+        console.log("encryptedPackages from local storage is: ", this.encryptedPackages);
+        return this.encryptedPackages;
     }
 
     getOrCreateWrappingIv() {
@@ -135,7 +141,6 @@ export class StorageManager {
     }
     
     getServerPublicKey() {
-        let keyBuffer;
         if (localStorage.getItem("serverPublicKey") !== null) {
             const keyBuffer = Uint8Array.fromBase64(localStorage.getItem("serverPublicKey"));
             //console.log("Server public key buffer from local storage is: ", keyBuffer);
@@ -231,5 +236,32 @@ export class StorageManager {
             //console.log("Local storage is not available.");
             return;
         }
+    }
+
+    setBackupData(file) {
+        let importedBackup;
+            const reader = new FileReader();
+            reader.onload = () => {
+                importedBackup = JSON.parse(reader.result);
+                console.log("importedBackup", importedBackup);
+                localStorage.setItem("encryptedPackages", JSON.stringify(importedBackup.encryptedPackages));
+                localStorage.setItem("encryptedWrappedKey", importedBackup.encryptedWrappedKey);
+                console.log("this.ivLength", this.ivLength);
+                const messageIvStart = crypto.getRandomValues(new Uint8Array(this.ivLength - 4));
+                const messageIvEnd = new Uint8Array(4).fill(0);
+                const messageIv = new Uint8Array(this.ivLength);
+                messageIv.set(messageIvStart, 0);
+                console.log("messageIvStart", messageIvStart, "messageIvEnd", messageIvEnd, "messageIv", messageIv);
+                messageIv.set(messageIvEnd, messageIvStart.length);
+                console.log("messageIv ", messageIv, messageIv.toString());
+                localStorage.setItem("messageIv", messageIv.toBase64());
+                console.log("messageIv ", messageIv, " stored in local storage: ", messageIv.toString());
+                localStorage.setItem("encryptedSessionKey", importedBackup.encryptedSessionKey);
+                localStorage.setItem("publicKey", importedBackup.publicKey);
+                localStorage.setItem("encryptedPrivateKey", importedBackup.encryptedPrivateKey);
+                localStorage.setItem("salt", importedBackup.salt);
+                localStorage.setItem("wrappingIv", importedBackup.wrappingIv);
+            };
+        reader.readAsText(file);
     }
 }

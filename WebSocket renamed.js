@@ -18,15 +18,15 @@ db.exec(sql `CREATE TABLE IF NOT EXISTS users (
 
 db.exec(sql`
   CREATE TABLE IF NOT EXISTS conversations (
-    ID INTEGER PRIMARY KEY,
+    ID INTEGER PRIMARY KEY/* ,
     username TEXT NOT NULL,
     contactusername TEXT NOT NULL,
     FOREIGN KEY (username) REFERENCES users(username),
     FOREIGN KEY (contactusername) REFERENCES users(username),
-    UNIQUE (username, contactusername)
+    UNIQUE (username, contactusername) */
   )
 `);
-/* 
+
 db.exec(sql`
   CREATE TABLE IF NOT EXISTS conversationParticipants (
     username TEXT NOT NULL,
@@ -36,16 +36,16 @@ db.exec(sql`
     FOREIGN KEY (conversationID) REFERENCES conversations(ID)
   )
 `);
- */
+
 db.exec(sql`
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY,
     messageText TEXT NOT NULL,
     messageType TEXT NOT NULL CHECK (messageType in ('message', 'delete', 'remove', 'update')),
     messageTime INTEGER NOT NULL,
-    conversationID INTEGER NOT NULL,
+    /* conversationID INTEGER NOT NULL, */
     senderUsername TEXT NOT NULL,
-    FOREIGN KEY (conversationID) REFERENCES conversations(ID),
+    /* FOREIGN KEY (conversationID) REFERENCES conversations(ID), */
     FOREIGN KEY (senderUsername) REFERENCES users(username)
   )
 `);
