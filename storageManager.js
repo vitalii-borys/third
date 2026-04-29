@@ -4,12 +4,22 @@ export class StorageManager {
         this.encryptedPackages = this.initPackages();
         this.ivLength = 12;
         this.saltLength = 16;
-        this.encryptedPackages;
+    }
+
+    getUsername() {
+        const username = localStorage.getItem("username");
+        console.log(username, "is in local storage");
+        return username;
+    }
+
+    setUsername(currentUsername) {
+        localStorage.setItem("username", currentUsername);
+        console.log(currentUsername, "written to local storage");
     }
 
     initPackages() {
         if (localStorage.getItem("encryptedPackages") === null) {
-            localStorage.setItem("encryptedPackages", JSON.stringify({messages: [{id: 0, text: ""}]}));
+            localStorage.setItem("encryptedPackages", JSON.stringify( {0: {text: ""}} ));
             this.encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
             //console.log("No encrypted packages in local storage. Empty ", this.#encryptedPackages, " created.");
         }
@@ -17,7 +27,7 @@ export class StorageManager {
 
     getEncryptedPackages() {
         this.encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
-        console.log("encryptedPackages from local storage is: ", this.encryptedPackages);
+        //console.log("encryptedPackages from local storage is: ", this.encryptedPackages);
         return this.encryptedPackages;
     }
 
@@ -106,12 +116,12 @@ export class StorageManager {
         //console.log("Encrypten session key: ", keyString, " written to local storage.");
     }
     
-    getPublicKey() {
-        let keyBuffer;
+    getPublicKeyString() {
+        //let keyBuffer;
         if (localStorage.getItem("publicKey") !== null) {
-            keyBuffer = Uint8Array.fromBase64(localStorage.getItem("publicKey"));
+            //keyBuffer = Uint8Array.fromBase64(localStorage.getItem("publicKey"));
             //console.log("Public key buffer from local storage is: ", keyBuffer);
-            return keyBuffer;
+            return localStorage.getItem("publicKey");
         } else {
             return null;
         }
@@ -198,7 +208,7 @@ export class StorageManager {
     }
 
     savePackages(packages) {
-        localStorage.setItem("encryptedPackages", JSON.stringify({messages: packages}));
+        localStorage.setItem("encryptedPackages", JSON.stringify(packages));
     }
 
     static isAvailable(type) {

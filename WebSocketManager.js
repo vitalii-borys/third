@@ -9,6 +9,7 @@ export class WebSocketManager {
         this.forceClose = false;
         this.reconnectionAttempts = 0;
         this.maxReconnectInterval = 60000;
+        this.pendingRequests = new Map();
     }
 
     connect() {
@@ -20,7 +21,7 @@ export class WebSocketManager {
             this.callbacks.setFormVisibility(event);
             const keyString = sessionStorage.getItem("wrappingKey");
             if (keyString !== null) {
-                this.username = this.callbacks.setUsername();
+                this.username = this.callbacks.getUsername();
                 this.callbacks.loadCrypto(null, true);
                 try {
                     if (this.username !== undefined) {
@@ -51,7 +52,7 @@ export class WebSocketManager {
             console.log("Connection closed. Reconnecting after", reconnectInterval, "ms", this.ws.readyState);
             setTimeout(() => {
                 if (!this.forceClose) {
-                this.connect();
+                    this.connect();
                 }
             }, reconnectInterval);
             this.ws.onclose = null;
@@ -59,43 +60,6 @@ export class WebSocketManager {
 
         this.ws.onmessage = async(message) => {
             this.callbacks.onMessageReceived(message);
-            /* const messageData = JSON.parse(message.data);
-            switch(messageData.messageType) {
-                case "checkUsername": {
-                    this.callbacks.handleUsernameAvailability(messageData);
-                }
-                break;
-                case "error": {
-                    console.log(messageData);
-                }
-                break;
-                case "noAuth": {
-                    console.log(messageData);
-                }
-                break;
-                case "noUser": {
-                    this.callbacks.handleNoUserCase(messageData);
-                }
-                break;
-                case "initialMessage": {
-                    localStorage.setItem("username", this.username);
-                    this.callbacks.handleInitialCase(messageData);
-                    //this.callbacks.setFormVisibility();
-                }
-                break;
-                case "userContact": {
-                    this.callbacks.addContact(messageData);
-                }
-                break;
-                case "auth": {
-                    console.log(messageData, "in auth");
-                    this.username = this.callbacks.setUsername();
-                    const signatureForServer = await this.callbacks.signData(messageData.messageText);
-                    const messageJSON = JSON.stringify( {messageType: "auth", messageText: signatureForServer, username: this.username });
-                    this.ws.send(messageJSON);
-                }
-                break;
-            } */
         }
         
         this.ws.onerror = () => {
@@ -105,19 +69,38 @@ export class WebSocketManager {
         }
     }
 
+    resolvePublicKeyRequest(messageData) {
+        const result = this.pendingRequests.get(messageData.username);
+        if (result) {
+            result(messageData.publicKey);
+            this.pendingRequests.delete(messageData.username);
+        }
+    }
+
     async registerUser(username) {
         this.username = username; 
         const serverKeyBuffer = await this.callbacks.serverPublicKey();
-        const publicKeyBuffer = new Uint8Array(serverKeyBuffer).toBase64();
-        const messageJSON = JSON.stringify( {messageType: "register", username: username, publicKey: publicKeyBuffer });
+        const encodedServerPublicKey = new Uint8Array(serverKeyBuffer).toBase64();
+        const groupKey = await this.callbacks.getEncryptedGroupKeysForContacts();
+        const myPublicKey = this.callbacks.getPublicKeyString();
+        const messageJSON = JSON.stringify( {messageType: "register", username: username, serverPublicKey: encodedServerPublicKey, myGroupKey: groupKey, userPublicKey: myPublicKey });
         this.ws.send(messageJSON);
         console.log(messageJSON, "sent to server");
+    }
+    
+    async getUserPublicKey(username) {
+        return new Promise((resolve, reject) => {
+            const messageJSON = JSON.stringify( {messageType: "getUserPublicKey", username: username} );
+            this.pendingRequests.set(username, resolve);
+            this.ws.send(messageJSON);
+            console.log(messageJSON, "sent to server");
+        });
     }
     
     disconnect() {
         this.forceClose = true;
         if (this.ws) {
-        this.ws.close();
+            this.ws.close();
         }
     }
 }

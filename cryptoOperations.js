@@ -1,6 +1,5 @@
 
 export class CryptoVault {
-    #storageManager;
     timestampLength = 8;
     ivLength = 12;
     #messageIv;
@@ -8,11 +7,87 @@ export class CryptoVault {
     serverPublicKey;
     #sessionKey;
     #wrappingKey;
+    #wrappingIv;
     #clientPrivateKey;
     clientPublicKey;
 
-    constructor(storageManager) {
-        this.#storageManager = storageManager;
+    constructor(callbacks) {
+        this.callbacks = callbacks;
+    }
+
+    async getEncryptedGroupKeysForContacts(usernamePublicKey) {
+        const groupKeyBuffer = await this.generateGroupKey();
+        const keyString = new Uint8Array(groupKeyBuffer).toBase64();
+        const encoder = new TextEncoder();
+        const encodedGroupKey = encoder.encode(keyString);
+        let encryptedGroupKeyString;
+        if(usernamePublicKey !== undefined) {
+
+            const participantPublicKeyBuffer = Uint8Array.fromBase64(usernamePublicKey);
+            const participantPublicKey = await window.crypto.subtle.importKey(
+                "spki",
+                participantPublicKeyBuffer,
+                {name: "RSA-OAEP", hash: "SHA-256"},
+                true,
+                ["encrypt"]
+            );
+            console.log("participantPublicKey", participantPublicKey);
+            const encryptedGroupKeyBuffer = await window.crypto.subtle.encrypt(
+                {name: "RSA-OAEP"},
+                participantPublicKey,
+                encodedGroupKey
+            );
+            encryptedGroupKeyString = new Uint8Array(encryptedGroupKeyBuffer).toBase64();
+            console.log("encryptedGroupKeyString is", encryptedGroupKeyString);
+        }
+            
+            const myEncryptedGroupKeyBuffer = await window.crypto.subtle.encrypt(
+                {name: "RSA-OAEP"},
+                this.clientPublicKey,
+                encodedGroupKey
+            );
+            const myEncryptedGroupKeyString = new Uint8Array(myEncryptedGroupKeyBuffer).toBase64();
+            console.log("My encryptedGroupKeyString is", myEncryptedGroupKeyString);
+        if (usernamePublicKey !== undefined) {
+            return {encryptedGroupKeyString, myEncryptedGroupKeyString};
+        } else {
+            console.log("myEncryptedGroupKeyString", myEncryptedGroupKeyString);
+            return myEncryptedGroupKeyString;
+        }
+    }
+
+    async decryptGroupKey(keyString) {
+        const groupKeyBuffer = Uint8Array.fromBase64(keyString);
+        const decryptedGroupKeyBuffer = await window.crypto.subtle.decrypt(
+            {name: "RSA-OAEP"},
+            this.#clientPrivateKey,
+            groupKeyBuffer
+        );
+        const decoder = new TextDecoder;
+        const decodedGroupKey = decoder.decode(decryptedGroupKeyBuffer);
+        const decodedKeyBuffer = Uint8Array.fromBase64(decodedGroupKey);
+        const importedKey = await window.crypto.subtle.importKey(
+            "raw",
+            decodedKeyBuffer,
+            "AES-GCM",
+            true,
+            ['encrypt', 'decrypt']
+        );
+        return importedKey;
+    }
+
+    async generateGroupKey() {
+        const generatedKey = await window.crypto.subtle.generateKey(
+            {
+                name: "AES-GCM",
+                length: 256,
+            },
+            true,
+            ["encrypt", "decrypt"],
+        );
+        console.log("No group key in local storage so newely genegated random key is: ", generatedKey);
+        const exportedKey = await window.crypto.subtle.exportKey("raw", generatedKey);
+        return exportedKey;
     }
 
     async signData(data) {
@@ -41,20 +116,28 @@ export class CryptoVault {
     }
 
     async load(userPassword, stayLoggedIn) {
-        this.#messageIv = this.#storageManager.getOrCreateMessageIv();
-        const wrappingIv = this.#storageManager.getOrCreateWrappingIv();
-        let sessionKey = this.#storageManager.getEncryptedSessionKey();
-        if (sessionKey !== null) {
+        this.#messageIv = this.callbacks.getOrCreateMessageIv();
+        this.#wrappingIv = this.callbacks.getOrCreateWrappingIv();
+        let sessionKeyBuffer = this.callbacks.getEncryptedSessionKey();
+        if (sessionKeyBuffer !== null) {
             this.#sessionKey = await this.#getKey(userPassword, stayLoggedIn);
-            await this.loadKeysFromStorage(wrappingIv);
+            await this.loadKeysFromStorage(this.#wrappingIv);
         } else {
             this.#sessionKey = await this.#getKey(userPassword, stayLoggedIn);
-            await this.generaTeAndStoreNewKeys(wrappingIv);
+            await this.generaTeAndStoreNewKeys(this.#wrappingIv);
         }
-        return this;
+        if (this.#sessionKey && this.#serverPrivateKey && this.serverPublicKey && this.#clientPrivateKey && this.clientPublicKey) {
+            if (stayLoggedIn) {
+                const exportedWrappingKey = await window.crypto.subtle.exportKey("raw", this.#wrappingKey);
+                this.callbacks.saveSessionWrappingKey(exportedWrappingKey);
+            }
+            return this;
+        } else {
+            return null;
+        }
     }
   
-    async encryptPackage(data, timestamp) {
+    async encryptPackage(key, data, timestamp) {
         const encoder = new TextEncoder();
         const encodedData = encoder.encode(data);
         let additionalData;
@@ -64,13 +147,15 @@ export class CryptoVault {
             additionalData = this.#bigintToUint8Buffer(BigInt(Date.now()));
         }
         this.#incrementIv(this.#messageIv);
+        console.log("Key 55 is", key);
         const ciphertext = await crypto.subtle.encrypt(
             {
                 name: "AES-GCM",
                 iv: this.#messageIv,
                 additionalData: additionalData
             },
-            this.#sessionKey,
+            key,
+            //this.#sessionKey,
             encodedData,
         );
         const ciphertextArray = new Uint8Array(ciphertext);
@@ -82,7 +167,7 @@ export class CryptoVault {
         return package64;
     }
 
-    async decryptPackage(packageData) {
+    async decryptPackage(key, packageData) {
         const packageToBytes = Uint8Array.fromBase64(packageData);
         const receivedTimestampArray = packageToBytes.slice(0, this.timestampLength);
         const receivedTimestamp = this.#uint8ArrayToBigint(receivedTimestampArray);
@@ -95,7 +180,8 @@ export class CryptoVault {
                     iv: receivedMessageIvArray,
                     additionalData: receivedTimestampArray
                 },
-                this.#sessionKey,
+                key,
+                //this.#sessionKey,
                 receivedCiphertextArray,
             );
             const message = new TextDecoder().decode(decryptedBuffer);
@@ -111,7 +197,7 @@ export class CryptoVault {
     }
 
     async deriveWrappingKeyFromPassword(masterKey, salt, stayLoggedIn) {
-        const wrappingKey = await window.crypto.subtle.deriveKey(
+        this.#wrappingKey = await window.crypto.subtle.deriveKey(
             {
                 name: "PBKDF2",
                 salt: salt,
@@ -126,18 +212,11 @@ export class CryptoVault {
             true,
             ["encrypt", "decrypt"],
         );
-        this.#wrappingKey = wrappingKey;
-        if (stayLoggedIn) {
-            const exportedWrappingKey = await window.crypto.subtle.exportKey("raw", wrappingKey);
-            const wrappingKeyBuffer = new Uint8Array(exportedWrappingKey).toBase64();
-            sessionStorage.setItem("wrappingKey", wrappingKeyBuffer);
-            console.log("Session key is written to session storage");
-        }
-        return wrappingKey;
+        return this.#wrappingKey;
     }
 
     async loadWrappingKeyFromSession() {
-        const importKeyBuffer = this.#storageManager.getSessionWrappingKey();
+        const importKeyBuffer = this.callbacks.getSessionWrappingKey();
         const decryptedKey = await window.crypto.subtle.importKey(
             "raw",
             importKeyBuffer,
@@ -145,36 +224,34 @@ export class CryptoVault {
             true,
             ["encrypt", "decrypt"],
         );
-        return decryptedKey;
+        this.#wrappingKey = decryptedKey;
     }
   
     async #getKey(userPassword, stayLoggedIn) {
-        const salt = this.#storageManager.getOrCreateSalt();
-        const wrappingIv = this.#storageManager.getOrCreateWrappingIv();
+        const salt = this.callbacks.getOrCreateSalt();
         var encodedPassword = new TextEncoder().encode(userPassword);
         userPassword = "";
         const masterKey = await window.crypto.subtle.importKey("raw", encodedPassword, "PBKDF2", false, ["deriveKey"]);
         encodedPassword = null;
-        let wrappingKey;
-        let storedKey = this.#storageManager.getSessionWrappingKey();
-        if (storedKey !== null) {
-            wrappingKey = await this.loadWrappingKeyFromSession();
-            console.log("Wrapping key from session storage is: ", wrappingKey);
+        let storedKey = this.callbacks.getSessionWrappingKey();
+        if (storedKey) {
+            await this.loadWrappingKeyFromSession();
+            console.log("Wrapping key from session storage is: ", this.#wrappingKey);
         } else {
-            wrappingKey = await this.deriveWrappingKeyFromPassword(masterKey, salt, stayLoggedIn);
-            console.log("Newely generated wrapping key is: ", wrappingKey);
+            await this.deriveWrappingKeyFromPassword(masterKey, salt, stayLoggedIn);
+            console.log("Wrapping key generated from password is: ", this.#wrappingKey);
         }
-        this.#wrappingKey = wrappingKey;
 
-        const wrappedKeyBuffer = this.#storageManager.getEncryptedWrappedKey();
+        const wrappedKeyBuffer = this.callbacks.getEncryptedWrappedKey();
+        //console.log("wrappedKeyBuffer", wrappedKeyBuffer, "wrappingKey", this.#wrappingKey, "wrappingIv", wrappingIv)
         if (wrappedKeyBuffer !== null) {
             try {
                 const decryptBuffer = await crypto.subtle.decrypt(
                     {
                         name: "AES-GCM",
-                        iv: wrappingIv,
+                        iv: this.#wrappingIv,
                     },
-                    wrappingKey,
+                    this.#wrappingKey,
                     wrappedKeyBuffer,
                 );
                 const decryptedKey = await window.crypto.subtle.importKey(
@@ -204,12 +281,12 @@ export class CryptoVault {
             const encryptedWrappingKey = await crypto.subtle.encrypt(
                 {
                     name: "AES-GCM",
-                    iv: wrappingIv,
+                    iv: this.#wrappingIv,
                 },
-                wrappingKey,
+                this.#wrappingKey,
                 new Uint8Array(exportedKey),
             );
-            this.#storageManager.saveEncryptedWrappedKey(encryptedWrappingKey);
+            this.callbacks.saveEncryptedWrappedKey(encryptedWrappingKey);
             return generatedKey;
         }
     }
@@ -236,14 +313,14 @@ export class CryptoVault {
                 hash: "SHA-256",
             },
             true,
-            ["encrypt", "decrypt"],
+            ["decrypt", "encrypt"],
             );
         }
         return keyPair;
     }
 
-    async loadKeysFromStorage(wrappingIv) {
-        const publicKeyBuffer = this.#storageManager.getPublicKey();
+    async loadKeysFromStorage() {
+        const publicKeyBuffer = Uint8Array.fromBase64(this.callbacks.getPublicKeyString());
         const publicKey = await crypto.subtle.importKey(
             "spki",
             publicKeyBuffer,
@@ -255,13 +332,13 @@ export class CryptoVault {
         );
         this.clientPublicKey = publicKey;
         
-        const privateKeyBuffer = this.#storageManager.getEncryptedPrivateKey();
+        const privateKeyBuffer = this.callbacks.getEncryptedPrivateKey();
         let decryptedPrivateKey;
         try {
             decryptedPrivateKey = await crypto.subtle.decrypt(
             {
                 name: "AES-GCM",
-                iv: wrappingIv
+                iv: this.#wrappingIv
             },
             this.#wrappingKey,
             privateKeyBuffer
@@ -281,7 +358,7 @@ export class CryptoVault {
         );
         this.#clientPrivateKey = privateKey;
         
-        const serverPublicKeyBuffer = this.#storageManager.getServerPublicKey();
+        const serverPublicKeyBuffer = this.callbacks.getServerPublicKey();
         const serverPublicKey = await crypto.subtle.importKey(
             "spki",
             serverPublicKeyBuffer,
@@ -293,13 +370,13 @@ export class CryptoVault {
         );
         this.serverPublicKey = serverPublicKey;
         
-        const serverPrivateKeyBuffer = this.#storageManager.getEncryptedServerPrivateKey();
+        const serverPrivateKeyBuffer = this.callbacks.getEncryptedServerPrivateKey();
         let decryptedServerPrivateKey;
         try {
             decryptedServerPrivateKey = await crypto.subtle.decrypt(
             {
                 name: "AES-GCM",
-                iv: wrappingIv
+                iv: this.#wrappingIv
             },
             this.#wrappingKey,
             serverPrivateKeyBuffer
@@ -321,7 +398,7 @@ export class CryptoVault {
         this.#serverPrivateKey = serverPrivateKey;
     }
 
-    async generaTeAndStoreNewKeys(wrappingIv) {    
+    async generaTeAndStoreNewKeys() {    
         const clientKeyPair = await this.#generateKeyPair("client");
         console.log("Client Key Pair generated as:", clientKeyPair);
         const serverKeyPair = await this.#generateKeyPair("server");
@@ -333,30 +410,30 @@ export class CryptoVault {
         console.log("No key pair in local storage so newely generated keys are: ", clientPublicKey, clientPrivateKey);
         
         const exportedPublicKey = await crypto.subtle.exportKey("spki", clientPublicKey);
-        this.#storageManager.savePublicKey(exportedPublicKey);
+        this.callbacks.savePublicKey(exportedPublicKey);
         
         const exportedPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#clientPrivateKey);
         const encryptedPrivateKey = await crypto.subtle.encrypt(
             {
                 name: "AES-GCM",
-                iv: wrappingIv
+                iv: this.#wrappingIv
             },
             this.#wrappingKey,
             exportedPrivateKey
         );
-        this.#storageManager.saveEncryptedPrivateKey(encryptedPrivateKey);
+        this.callbacks.saveEncryptedPrivateKey(encryptedPrivateKey);
         
         const exportedSessionKey = await crypto.subtle.exportKey("raw", this.#sessionKey);
         console.log(exportedSessionKey);
         const encryptedSessionKey = await crypto.subtle.encrypt(
             {
                 name: "AES-GCM",
-                iv: wrappingIv
+                iv: this.#wrappingIv
             },
             this.#sessionKey,
             exportedSessionKey
         );
-        this.#storageManager.saveEncryptedSessionKey(encryptedSessionKey);
+        this.callbacks.saveEncryptedSessionKey(encryptedSessionKey);
         
         const serverPublicKey = serverKeyPair.publicKey;
         const serverPrivateKey = serverKeyPair.privateKey;
@@ -365,18 +442,18 @@ export class CryptoVault {
         console.log("No key pair in local storage so newely generated server keys are: ", serverPublicKey, serverPrivateKey);
 
         const exportedServerPublicKey = await crypto.subtle.exportKey("spki", serverPublicKey);
-        this.#storageManager.saveServerPublicKey(exportedServerPublicKey);
+        this.callbacks.saveServerPublicKey(exportedServerPublicKey);
         
         const exportedSeverPrivateKey = await crypto.subtle.exportKey("pkcs8" , this.#serverPrivateKey);
         const encryptedServerPrivateKey = await crypto.subtle.encrypt(
             {
                 name: "AES-GCM",
-                iv: wrappingIv
+                iv: this.#wrappingIv
             },
             this.#wrappingKey,
             exportedSeverPrivateKey
         );
-        this.#storageManager.saveEncryptedServerPrivateKey(encryptedServerPrivateKey);
+        this.callbacks.saveEncryptedServerPrivateKey(encryptedServerPrivateKey);
     }
 
     #incrementIv(buffer) {

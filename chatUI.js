@@ -3,11 +3,15 @@ export class ChatUI {
     #role;
     timeoutID;
     usernameAvailable;
+    currentGroupID = null;
+    currentGroupKey;
+    conversationKeys = new Map();
+    conversationMessages = new Map();
 
     constructor (callbacks) {
+        this.callbacks = callbacks;
         this.ivLength = 12;
         this.passwordCorrect;
-        this.callbacks = callbacks;
         this.userMessages = document.getElementById('userMessages');
         this.contactDiv = document.getElementById("contactDiv");
         this.userInput = document.getElementById('user_input');
@@ -40,11 +44,12 @@ export class ChatUI {
         this.connectionTitle = document.getElementById("connectionTitle");
 
         this.userInput.focus();
-        this.userInput.addEventListener("input", function() {
-            this.style.height = "auto";
-            this.style.height = (this.scrollHeight) + "px";
+        
+        this.userInput.addEventListener("input", (event) => {
+            this.userInput.style.height = "auto";;
+            this.userInput.style.height = this.userInput.scrollHeight + "px";
+            this.scrollToBottom();
         });
-
 
         this.registerPasswordInputConfirm.addEventListener('keypress', (event) => {
             if (event.key === 'Enter') {
@@ -153,7 +158,7 @@ export class ChatUI {
         });
 
         this.registrationSignupButton.addEventListener('click', async(e) => {
-            console.log(this.usernameAvailable, this.passwordCorrect);
+            console.log("usernameAvailable & passwordCorrect", this.usernameAvailable, this.passwordCorrect);
             if (this.usernameAvailable && this.passwordCorrect) {
                 console.log("All data input is correct. Trying to register.");
                 e.preventDefault();
@@ -161,7 +166,7 @@ export class ChatUI {
                     resolve (this.callbacks.loadCrypto(registerPasswordInput.value, false));
                 });
                 newPromise.then(() => {
-                    this.setUsername(this.registerUsernameInput.value);
+                    this.callbacks.setUsername(this.registerUsernameInput.value);
                     this.callbacks.startRegistration(this.registerUsernameInput.value);
                     this.backupButton.disabled = false;
                     this.saveButton.disabled = false;
@@ -177,6 +182,7 @@ export class ChatUI {
             e.preventDefault();
             if (this.loginUsernameInput.value.length > 2 && this.loginPasswordInput.value.length > 5) {
                 this.username = this.loginUsernameInput.value;
+                let result;
                 const newPromise = new Promise((resolve) => {
                     resolve (this.callbacks.loadCrypto(this.loginPasswordInput.value, this.stayLoggedIn.checked));
                 });
@@ -208,12 +214,11 @@ export class ChatUI {
         this.userInput.addEventListener("keypress", (event) => {
             if (event.key === "Enter") {
                 event.preventDefault();
-                console.log(this.saveButton);
                 this.saveButton.click();
             }
         });
 
-        this.contactButton.addEventListener('click', () => {
+        this.contactButton.addEventListener('click', async () => {
             if (document.getElementById('alertDiv')) {
                 document.getElementById('alertDiv').remove();
             }
@@ -233,17 +238,26 @@ export class ChatUI {
                 contactInputDiv.appendChild(contactInput);
                 contactInputDiv.appendChild(addContactButton);
                 contactInput.focus();
-                addContactButton.addEventListener('click', () => {
+                addContactButton.addEventListener('click', async () => {
                     const newContact = contactInput.value;
                     if (newContact === null || newContact.length === 0) {
                         console.log("Aborted");
                         throw new Error("No contact provided");
                     }
-                    const messageJSON = JSON.stringify({ username: this.setUsername(), messageType: "addConversation", contactUsername: newContact });
+                    const publicKey = await this.callbacks.getUserPublicKey(newContact);
+                    console.log("publicKey from server", publicKey)
+                    const encryptedKeys = await this.callbacks.getEncryptedGroupKeysForContacts(publicKey);
+                    console.log("encryptedKeys", encryptedKeys)
+                    const messageJSON = JSON.stringify( {
+                        username: this.callbacks.getUsername(),
+                        messageType: "addGroupConversation",
+                        myGroupKey: encryptedKeys.myEncryptedGroupKeyString,
+                        arrayOfContacts: [{username: newContact, groupKey: encryptedKeys.encryptedGroupKeyString}]
+                    });
                     this.callbacks.wsSend(messageJSON);
                     console.log(messageJSON, "sent to server");
-                    });
-                    contactInput.addEventListener('keydown', (event) => {
+                });
+                contactInput.addEventListener('keydown', (event) => {
                     if (event.key === "Enter") {
                         addContactButton.click();
                     }
@@ -268,22 +282,22 @@ export class ChatUI {
 
         this.saveButton.addEventListener('click', async (e) => {
             e.preventDefault();
+            this.currentGroupID = this.getCurrentGroup();
+            if (!this.currentGroupID) {
+                this.showAlert("No conversation selected!");
+                return;
+            }
             this.saveButton.disabled = true;
             const data = this.userInput.value;
-            const packageData = await this.callbacks.encryptMessage(data);
-            const encryptedPackages = this.callbacks.getEncryptedPackages();
-            console.log(encryptedPackages);
-            encryptedPackages.messages.push({id: encryptedPackages.messages[encryptedPackages.messages.length - 1].id + 1, text: packageData})
-            localStorage.setItem("encryptedPackages", JSON.stringify( {messages: encryptedPackages.messages} ));
-            let currentMessageId = 0;
-            currentMessageId++;
-            this.createMessageElement(data, currentMessageId);
+            const packageData = await this.callbacks.encryptMessage(this.currentGroupKey, data);
+            console.log("packageData is", packageData);
             const messageJSON = JSON.stringify( {
-                id: currentMessageId,
                 messageText: packageData,
                 messageType: "message",
-                username: "Alice",
+                username: this.callbacks.getUsername(),
+                conversationID: this.currentGroupID
             });
+            //const enryptedKeys = await this.callbacks.getEncryptedKeysForContacts();
             this.callbacks.wsSend(messageJSON);
             console.log(messageJSON);
             this.saveButton.disabled = false;
@@ -329,21 +343,86 @@ export class ChatUI {
         });
     }
 
-    addContact(messageData) {
-        console.log(messageData);
-        const newContactDiv = document.createElement('div');
-        newContactDiv.classList = "newContactDiv";
-        if (messageData.contactusername === this.setUsername()) {
-            newContactDiv.textContent = "My notes";
+    getCurrentGroup = () => {
+        return this.currentGroupID;
+    }
+
+    showAlert(text) {
+        const alertWindow = document.createElement("div");
+        alertWindow.classList = "alertWindow";
+        alertWindow.textContent = text;
+        document.body.appendChild(alertWindow);
+        setTimeout(() => {
+            alertWindow.classList.add("visible");
+        }, 0);
+        setTimeout(() => {
+            alertWindow.classList.remove("visible");
+        }, 3500);
+        setTimeout(() => {
+            document.body.removeChild(alertWindow);
+        }, 4000);
+    }
+
+    async addConversation(conversation) {
+        console.log("conversationID is", conversation.conversationID, "conversation.participants is", conversation.participants, "group key is", conversation.groupKey.slice(0, 4));
+        const currentMessages = this.conversationMessages.get(conversation.conversationID);
+        const groupKey = await this.callbacks.decryptGroupKey(conversation.groupKey);
+        this.conversationKeys.set(conversation.conversationID, groupKey);
+        const newConversationDiv = document.createElement('div');
+        newConversationDiv.classList = "conversationDiv";
+        let chatDescription = "";
+        conversation.participants.forEach(participant => {
+            chatDescription += participant.username + " ";
+        });
+        if (conversation.participants.length === 1 && conversation.participants[0].username === this.callbacks.getUsername()) {
+            newConversationDiv.textContent = "My notes";
         } else {
-            newContactDiv.textContent = messageData.contactusername;
+            newConversationDiv.textContent = chatDescription;
         }
-        this.contactDiv.appendChild(newContactDiv);
+        newConversationDiv.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+        newConversationDiv.addEventListener('click', async () => {
+            if (this.currentGroupID === conversation.conversationID) {return;}
+            this.currentGroupID = conversation.conversationID;
+            this.currentGroupKey = this.conversationKeys.get(conversation.conversationID);
+            const c = this.contactDiv.children;
+            for (let child of c) {
+                child.classList.remove("activeConversation");
+                child.classList.add("conversationDiv");
+            }
+            newConversationDiv.classList = 'activeConversation';
+            this.userMessages.innerHTML = "";
+            const currentMessages = this.conversationMessages.get(conversation.conversationID) || [];
+            for (const messageData of currentMessages) {
+                await this.handleMessage(messageData);
+            }
+            /* conversation.messages.forEach(async messageData => {
+                currentMessages.push({id: messageData.id, messageText: messageData.messageText, messageTime: messageData.messageTime});
+                this.handleMessage(messageData);
+            });
+            this.conversationMessages.set(conversation.conversationID, currentMessages); */
+            console.log("this.conversationMessages is", this.conversationMessages);
+            this.userInput.focus();
+            console.log("this.currentGroupID is", this.currentGroupID, "this.currentGroupKey is", this.currentGroupKey);
+        });
+        this.contactDiv.appendChild(newConversationDiv);
+        if (document.getElementById('alertDiv')) {
+            document.getElementById('alertDiv').remove();
+        }
+        if (document.getElementById('contactInputDiv')) {
+            document.getElementById('contactInputDiv').remove();
+        }
     }
     
-    createMessageElement = (message, id) => {
-        const timestamp = new Date();
-        const messageTime = new Date(Number(timestamp));
+    createMessageElement = (message, id, timestamp) => {
+        let messageTimestamp;
+        if (timestamp === undefined) {
+            messageTimestamp = new Date();
+        } else {
+            messageTimestamp = timestamp;
+        }
+        const messageTime = new Date(Number(messageTimestamp));
         const formatted = `${String(messageTime.getHours()).padStart(2, 0)}:${String(messageTime.getMinutes()).padStart(2, 0)}`;
         const dayName = this.days[messageTime.getDay()];
         const messageTextEl = document.createElement('div');
@@ -359,16 +438,13 @@ export class ChatUI {
         messageTimeEl.textContent = formatted;
         messageDiv.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            this.createContextMenu(e.pageX, e.pageY, id, messageDiv);
+            this.createContextMenu(e.pageX, e.pageY, id, messageDiv, messageTimestamp);
         });
         messageDiv.append(messageTextEl, messageDayEl, messageTimeEl);
-        this.userMessages.append(messageDiv);
-        console.log(messageDiv);
-        return messageDiv;
+        this.userMessages.appendChild(messageDiv);
     }
 
-    createContextMenu (x, y, messageId, divToRemove) {
-        const username = this.setUsername();
+    createContextMenu (x, y, messageId, divToRemove, messageTimestamp) {
         const menu = document.getElementsByClassName('contextMenu');
         if (menu[0] !== undefined) {
             menu[0].remove();
@@ -400,21 +476,32 @@ export class ChatUI {
             updateButton.style.background = "white";
         });
         removeButton.addEventListener('click', () => {
-            const messageJSON = JSON.stringify({ id: messageId, username: username, messageType: "delete" });
+            const messageJSON = JSON.stringify({ id: messageId, username: this.callbacks.getUsername(), messageType: "delete" });
             console.log(messageJSON);
             this.callbacks.wsSend(messageJSON);
             contextMenu.remove();
             divToRemove.remove();
         });
-        updateButton.addEventListener('click', (e) => {
-            const inputElement = document.createElement('input');
-            inputElement.type = 'text';
-            inputElement.style.all = 'inherit';
-            inputElement.style.backgroundColor = 'white';
+        updateButton.addEventListener('click', () => {
+            const inputElement = document.createElement('textarea');
+            inputElement.classList = "editMessageInput";
+            console.log(divToRemove.style.fontSize);
+            /* inputElement.style.all = 'inherit';
+            inputElement.style.backgroundColor = 'white'; */
+            console.log(divToRemove.children[0].offsetHeight);
             inputElement.value = divToRemove.children[0].innerText;
+            inputElement.style.height = divToRemove.children[0].offsetHeight + 'px';
             const unUpdatedMessage = divToRemove.children[0]
             divToRemove.children[0].replaceWith(inputElement);
+            console.log(inputElement.offsetHeight);
+            console.log(inputElement.scrollHeight);
             inputElement.focus();
+
+            inputElement.addEventListener('input', () => {                
+                //inputElement.style.height = 'auto';
+                console.log(inputElement.scrollHeight);
+                inputElement.style.height = inputElement.scrollHeight + 'px'
+            });
 
             setTimeout(() => {
                 document.addEventListener('click', () => {
@@ -428,21 +515,20 @@ export class ChatUI {
                 }
                 if (e.key === 'Enter') {
                     const encryptedPackages = this.callbacks.getEncryptedPackages();
-                    const decryptedMessageToEdit = await this.callbacks.decryptMessage(encryptedPackages.messages[messageId].text);
-                    console.log(decryptedMessageToEdit);
+                    const decryptedMessageToEdit = await this.callbacks.decryptMessage(this.currentGroupKey, encryptedPackages[messageId].text);
                     const messageToEditTimestamp = decryptedMessageToEdit.receivedTimestamp;
-                    console.log(messageToEditTimestamp);
                     const updatedDiv = document.createElement("div");
                     updatedDiv.classList = "messageTextEl";
                     let newMessage;
                     try {
-                        newMessage = await this.callbacks.encryptMessage(inputElement.value, messageToEditTimestamp);
+                        console.log(inputElement.value, messageTimestamp);
+                        newMessage = await this.callbacks.encryptMessage(this.currentGroupKey, inputElement.value, messageTimestamp);
                     } catch (e) {
                         console.log("Error", e);
                     }
                     updatedDiv.textContent = inputElement.value;
                     inputElement.replaceWith(updatedDiv);
-                    const messageJSON = JSON.stringify({ id: messageId, "messageText": newMessage, username: username, messageType: "update" });
+                    const messageJSON = JSON.stringify({ id: messageId, "messageText": newMessage, username: this.callbacks.getUsername(), messageType: "update" });
                     console.log(messageJSON);
                     this.callbacks.wsSend(messageJSON);
                 }
@@ -466,7 +552,7 @@ export class ChatUI {
         console.log(event);
         if (event.type === "open") {
             this.connectionTitle.style.display = "none";
-            const localUsername = localStorage.getItem("username");
+            const localUsername = this.callbacks.getUsername();
             if (localUsername !== null) {
                 this.logInForm.style.display = "flex";
                 this.loginUsernameInput.value = localUsername;
@@ -501,6 +587,7 @@ export class ChatUI {
     }
 
     handleNoUserCase(messageData) {
+        console.log(messageData);
         let alertDiv = document.getElementById('alertDiv');
         if (alertDiv === null) {
             const alertDiv = document.createElement('div');
@@ -514,6 +601,12 @@ export class ChatUI {
     }
 
     handleInitialCase(messageData) {
+        if (document.getElementById('alertDiv')) {
+            document.getElementById('alertDiv').remove();
+        }
+        if (document.getElementById('contactInputDiv')) {
+            document.getElementById('contactInputDiv').remove();
+        }
         this.registerUsernameInput.value = "";
         this.registrationForm.style.display = "none";
         this.logInForm.style.display = "none";
@@ -558,26 +651,44 @@ export class ChatUI {
                 }
             });
         } else if (messageData.userRole === "user") {
-            console.log(messageData);
             this.#role = "user";
         }
         this.userMessages.innerHTML = "";
-        /* for (const msg of messageData.messages) {
-            this.handleMessage(msg);
-        } */
         this.contactDiv.innerHTML = "";
-        const userContacts = messageData.conversations;
-        userContacts.forEach(contact => {
-            this.addContact(contact);
+        messageData.conversations.forEach(conversation => {
+            const messageArray = [];
+            conversation.messages.forEach(message => {
+                const formattedMessage = {id: message.id, messageText: message.messageText, messageTime: message.messageTime}
+                messageArray.push(formattedMessage);
+            });
+            this.conversationMessages.set(conversation.conversationID, messageArray);
+            this.addConversation(conversation);
         });
         this.backupButton.disabled = false;
         this.saveButton.disabled = false;
         this.scrollToBottom();
+        console.log("this.conversationMessages is ", typeof this.conversationMessages, this.conversationMessages);
     }
 
-    handleMessage(decryptedData) {
-        const messageDiv = this.createMessageElement(decryptedData.message, decryptedData.receivedTimestamp, message.id);
-        this.userMessages.append(messageDiv);
+    async handleMessage(messageData) {
+        console.log("messageData is", messageData);
+        const decryptedMessage = await this.callbacks.decryptMessage(this.currentGroupKey, messageData.messageText);
+        this.createMessageElement(decryptedMessage.message, messageData.id, decryptedMessage.receivedTimestamp);
+        const encryptedPackages = this.callbacks.getEncryptedPackages();
+        encryptedPackages[messageData.id] = {text: messageData.messageText};
+        localStorage.setItem("encryptedPackages", JSON.stringify(encryptedPackages));
+        this.scrollToBottom();
+    }
+
+    addMessageToConversation(messageData) {
+        console.log("messageData is", messageData)
+        const currentGroupKey = this.conversationKeys.get(messageData.conversationID);
+        const currentMessages = this.conversationMessages.get(messageData.conversationID);
+        const formattedMessage = {id: messageData.id, messageText: messageData.messageText, messageTime: messageData.messageTime};
+        currentMessages.push(formattedMessage);
+        this.conversationMessages.set(messageData.conversationID, currentMessages);
+        console.log(formattedMessage, "written to conversation", messageData.conversationID);
+        this.handleMessage(messageData);
     }
 
     handleCloseCase() {
@@ -588,17 +699,4 @@ export class ChatUI {
         this.registrationForm.style.display = "none";
         this.connectionTitle.style.display = "flex";
     }
-    
-    setUsername(username) {
-        if (localStorage.getItem('username') !== null) {
-            this.username = localStorage.getItem('username');
-            console.log(this.username, "in local storage");
-        } else {
-            localStorage.setItem("username", username);
-            this.username = username;
-            console.log(this.username, "written to local storage");
-        }
-        return this.username;
-    }
-
 }

@@ -121,7 +121,7 @@ form button {
     flex-direction: column;
     position: absolute;
     left: 0px;
-    width: 28vw;
+    width: 25vw;
     height: 100vh;
     z-index: 2;
 }
@@ -130,14 +130,16 @@ form button {
     flex-direction: column;
     position: relative;
     left: 0px;
-    width: 28vw;
+    width: 25vw;
 }
 #contactDiv {
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
     display: flex;
     flex-direction: column;
     position: relative;
     left: 0px;
-    width: 25vw;
+    /* width: 25vw; */
 }
 #contactInputDiv {
     display: flex;
@@ -170,16 +172,6 @@ form button {
     margin: 5px;
     font-size: medium;
     color: white;
-}
-.newContactDiv {
-    padding: 4px;
-    margin-top: 6px;
-    font-size: medium;
-    border: 1px solid grey;
-    border-radius: 5px;
-}
-.newContactDiv:hover {
-    background-color: rgb(133, 141, 151);
 }
 
 #adminTable {
@@ -255,7 +247,6 @@ form button {
     min-width: 340px;
     display: flex;
     flex-direction: column;
-    /* justify-content: flex-end; */
     margin: 8px;
     flex: 20;
     overflow-y: auto;
@@ -305,6 +296,19 @@ form button {
     width: 19vw;
 }
 
+.editMessageInput {
+    padding-left: 0.3rem;
+    padding-top: 0.1rem;
+    padding-bottom: 0.1rem;
+    flex: 8;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    background-color: white;
+    font-size: x-large;
+    font-family: inherit;
+    box-sizing: border-box;
+    overflow: hidden;
+}
 #inputField {
     /* field-sizing: content; */
     align-items: center;
@@ -314,6 +318,7 @@ form button {
     flex: 1;
 }
 #user_input {
+    /* transition: height 0.5s ease; */
     border-radius: 5px;
     min-height: 2rem; 
     resize: none;
@@ -332,4 +337,41 @@ form button {
     border-radius: 5px;
     font-size: x-large;
     width: fit-content;
+}
+
+.conversationDiv {
+    padding: 4px;
+    margin-top: 6px;
+    font-size: medium;
+    border: 1px solid grey;
+    border-radius: 5px;
+}
+.conversationDiv:hover {
+    background-color: rgb(133, 141, 151);
+}
+.activeConversation {
+    padding: 4px;
+    margin-top: 6px;
+    font-size: medium;
+    border: 1px solid grey;
+    border-radius: 5px;
+    background-color: rgb(80, 76, 114);
+}
+
+.alertWindow {
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out;
+    text-align: center;
+    position: absolute;
+    left: 50%;
+    margin: 1vh;
+    font-size: large;
+    transform: translateX(-50%);
+    width: 25vw;
+    background-color: yellow;
+    border: 2px solid black;
+    border-radius: 6px;
+}
+.alertWindow.visible {
+    opacity: 1;
 }

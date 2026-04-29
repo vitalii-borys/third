@@ -12,21 +12,28 @@ db.exec(sql `CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY,
     challengeBuffer TEXT NOT NULL,
     userRole TEXT NOT NULL DEFAULT 'user',
-    publicKey TEXT NOT NULL
+    serverPublicKey TEXT NOT NULL,
+    userPublicKey TEXT NOT NULL
   )
 `);
 
 db.exec(sql`
   CREATE TABLE IF NOT EXISTS conversations (
-    ID INTEGER PRIMARY KEY,
-    username TEXT NOT NULL,
-    contactusername TEXT NOT NULL,
-    FOREIGN KEY (username) REFERENCES users(username),
-    FOREIGN KEY (contactusername) REFERENCES users(username),
-    UNIQUE (username, contactusername)
+    ID INTEGER PRIMARY KEY
   )
 `);
-/* 
+
+db.exec(sql`
+  CREATE TABLE IF NOT EXISTS conversationKeys (
+    groupKey TEXT NOT NULL,
+    conversationID INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    PRIMARY KEY (username, conversationID),
+    FOREIGN KEY (username) REFERENCES users(username),
+    FOREIGN KEY (conversationID) REFERENCES conversations(ID)
+  )
+`);
+
 db.exec(sql`
   CREATE TABLE IF NOT EXISTS conversationParticipants (
     username TEXT NOT NULL,
@@ -36,45 +43,71 @@ db.exec(sql`
     FOREIGN KEY (conversationID) REFERENCES conversations(ID)
   )
 `);
- */
+
 db.exec(sql`
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY,
     messageText TEXT NOT NULL,
     messageType TEXT NOT NULL CHECK (messageType in ('message', 'delete', 'remove', 'update')),
     messageTime INTEGER NOT NULL,
-    conversationID INTEGER NOT NULL,
     senderUsername TEXT NOT NULL,
+    conversationID INTEGER NOT NULL,
     FOREIGN KEY (conversationID) REFERENCES conversations(ID),
     FOREIGN KEY (senderUsername) REFERENCES users(username)
   )
 `);
 
-
-const wss = new WebSocketServer({ port: 8080 });
+const ws = new WebSocketServer({ port: 8080 });
 console.log("WebSocket server listening on 8080");
 
+const insertConversationParticipantGroupKey = db.prepare(sql `INSERT INTO conversationKeys (username, groupKey, conversationID) VALUES (?, ?, ?)`);
+const getConversationKeyForUser = db.prepare(sql `SELECT groupKey FROM conversationKeys WHERE conversationID = ? AND username = ?`);
 const getUser = db.prepare(sql `SELECT * FROM users WHERE username = ?`);
-const getConversation = db.prepare(sql `SELECT * FROM conversations WHERE (username = ? AND contactUsername = ?) OR (contactUsername = ? AND username = ?)`);
-const insertUser = db.prepare(sql `INSERT INTO users (username, publicKey, challengeBuffer) VALUES (?, ?, ?)`);
-const insertMessage = db.prepare(sql `INSERT INTO messages (messageText, messageType, messageTime, conversationID, senderUsername) VALUES (?, ?, ?, ?, ?)`);
-const insertConversation = db.prepare(sql `INSERT INTO conversations (username, contactUsername) VALUES (?, ?)`);
-const deleteMessage = db.prepare(sql`DELETE FROM messages WHERE id = ? AND conversationID = ? AND senderUsername = ?`);
-const updateMessage = db.prepare(sql`UPDATE messages SET messageText = ? WHERE id = ? AND conversationID = ? AND senderUsername = ?`);
+const getUserPublicKey = db.prepare(sql `SELECT userPublicKey FROM users WHERE username = ?`);
+const insertUser = db.prepare(sql `INSERT INTO users (username, serverPublicKey, userPublicKey, challengeBuffer) VALUES (?, ?, ?, ?)`);
+const insertMessage = db.prepare(sql `INSERT INTO messages (messageText, messageType, messageTime, senderUsername, conversationID) VALUES (?, ?, ?, ?, ?)`);
+const getMessage = db.prepare(sql `SELECT messageText FROM messages WHERE senderUsername = ? AND id = ?`);
+const insertConversationID = db.prepare(sql `INSERT INTO conversations (ID) VALUES (NULL)`);
+const insertConversationParticipants = db.prepare(sql `INSERT INTO conversationParticipants (username, conversationID) VALUES (?, ?)`);
+const deleteMessage = db.prepare(sql`DELETE FROM messages WHERE id = ? AND senderUsername = ?`);
+const updateMessage = db.prepare(sql`UPDATE messages SET messageText = ? WHERE id = ? AND senderUsername = ?`);
 const getAllUsers = db.prepare(sql `SELECT * FROM users`);
-const getAllMessages = db.prepare(sql` SELECT * FROM messages ORDER BY messageTime ASC`);
-const selectedMessages = db.prepare(sql`
-  SELECT * FROM messages WHERE conversationID IN (
-    SELECT ID FROM conversations
-    WHERE username = ? OR contactUsername = ?
-    )
-  ORDER BY messageTime ASC
-`);
-const selectedConversations = db.prepare(sql`
-  SELECT * FROM conversations WHERE username = ?
-`);
+const getAllUserConversations = db.prepare(sql `SELECT * FROM conversationParticipants WHERE username = ?`);
+const getConversationID = db.prepare(sql `SELECT conversationID FROM conversationParticipants WHERE conversationID = ?`);
+const getTwoUsersConversationID = db.prepare(sql `SELECT conversationID FROM conversationParticipants WHERE username = ? INTERSECT SELECT conversationID FROM conversationParticipants WHERE  username = ?`);
+const getConversationParticipant = db.prepare(sql `SELECT * FROM conversationParticipants WHERE conversationID = ? AND username = ?`);
+const selectedMessages = db.prepare(sql`SELECT * FROM messages WHERE conversationID = ? ORDER BY messageTime ASC`);
+const getParticipantsOfID = db.prepare(sql`SELECT username FROM conversationParticipants WHERE conversationID = ?`);
 
-wss.on("connection", ws => {
+const getUserConversationsAndMessages = (username) => {
+  const currentConversations = getAllUserConversations.all(username);
+  let userFullMessagesHistory = [];
+  currentConversations.forEach(conversation => {
+    const conversationIDsAndParticipants = getParticipantsOfID.all(conversation.conversationID);
+    const conversationParticipants = [];
+    conversationIDsAndParticipants.forEach(participant => {
+      const participantUser = getUser.get(participant.username);
+      conversationParticipants.push( {username: participantUser.username, publicKey: participantUser.userPublicKey} );
+    });
+    const conversationMessages = selectedMessages.all(conversation.conversationID);
+    const userMessages = [];
+    conversationMessages.forEach(message => {
+      userMessages.push(message);
+    });
+    const groupKey = getConversationKeyForUser.get(conversation.conversationID, username);
+    console.log("groupKey is ", groupKey?.groupKey);
+    const conversationObject = {
+      conversationID: conversation.conversationID,
+      messages: userMessages,
+      participants: conversationParticipants,
+      groupKey: groupKey?.groupKey
+    }
+    userFullMessagesHistory.push(conversationObject);
+  });
+  return userFullMessagesHistory;
+}
+
+ws.on("connection", ws => {
   console.log("Client connected");
   let authenticatedUser = null;
 
@@ -116,11 +149,13 @@ wss.on("connection", ws => {
             ws.send(JSON.stringify( {messageType: "error", messageText: "username taken"} ));
           } else {
             const buf = randomBytes(32).toString("hex");
-            console.log("The random bytes of data generated is: " + typeof buf + buf, "is buf", parsed.username, "is username", parsed.publicKey, "is public key");
-            insertUser.run(parsed.username, parsed.publicKey, buf);
-            insertConversation.run(parsed.username, parsed.username);
+            console.log("The random bytes of data generated is: " + typeof buf + buf, "is buf", parsed.username, "is username", parsed.serverPublicKey, "is serverPublicKey");
+            insertUser.run(parsed.username, parsed.serverPublicKey, parsed.userPublicKey, buf);
             const newUser = getUser.get(parsed.username);
             console.log("Username", newUser, "is written into database");
+            const notesID = insertConversationID.run();
+            insertConversationParticipants.run(parsed.username, notesID.lastInsertRowid); // My notes
+            insertConversationParticipantGroupKey.run(parsed.username, parsed.myGroupKey, notesID.lastInsertRowid);
             ws.send(JSON.stringify({ messageType: "auth", messageText: newUser.challengeBuffer }));
             console.log("Challenge", newUser.challengeBuffer, "is sent to", newUser.username, "\n");
           }
@@ -140,12 +175,12 @@ wss.on("connection", ws => {
         case "auth": {
           const user = getUser.get(parsed.username);
           if (user !== undefined) {
-            const publicKeyBuffer = Buffer.from(user.publicKey, 'base64');
+            const serverPublicKeyBuffer = Buffer.from(user.serverPublicKey, 'base64');
             const bufferFromChallange = Buffer.from(user.challengeBuffer);
             const signatureBuffer = Buffer.from(parsed.messageText, 'base64');
-            const publicKey = await crypto.subtle.importKey(
+            const serverPublicKey = await crypto.subtle.importKey(
               "spki",
-              publicKeyBuffer,
+              serverPublicKeyBuffer,
               { 
                 name: "RSASSA-PKCS1-v1_5",
                 hash: "SHA-256"
@@ -156,7 +191,7 @@ wss.on("connection", ws => {
             try {
               let result = await crypto.subtle.verify(
                 "RSASSA-PKCS1-v1_5",
-                publicKey,
+                serverPublicKey,
                 signatureBuffer,
                 bufferFromChallange
               );
@@ -164,30 +199,31 @@ wss.on("connection", ws => {
               if (result) {
                 authenticatedUser = getUser.get(parsed.username);
                 if (authenticatedUser.userRole === "admin") {
+                  const userData = getUserConversationsAndMessages(authenticatedUser.username);
                   const payloadObject = {
                     userRole: "admin",
                     messageType: "initialMessage",
-                    messages: selectedMessages.all(authenticatedUser.username),
+                    conversations: userData,
                     user: getUser.get(authenticatedUser.username),
-                    users: getAllUsers.all(),
-                    allMessages: getAllMessages.all()
+                    users: getAllUsers.all()
                   };
                   ws.send(JSON.stringify(payloadObject));
+                  console.log(payloadObject, "is sent to", authenticatedUser.username);
                   console.log(authenticatedUser.username, "is authenticated as", authenticatedUser.userRole);
                 } else if (authenticatedUser.userRole === "user") {
-                  console.log(authenticatedUser.username, "is authenticated as", authenticatedUser.userRole);
-                  const allConversations = selectedConversations.all(authenticatedUser.username);
+                  const userData = getUserConversationsAndMessages(authenticatedUser.username);
                   const payloadObject = {
                     userRole: "user",
                     messageType: "initialMessage",
-                    user: getUser.get(authenticatedUser.username),
-                    conversations: allConversations
+                    user: authenticatedUser,
+                    conversations: userData
                   }
                   ws.send(JSON.stringify(payloadObject));
+                  console.log(payloadObject, "is sent to", authenticatedUser.username);
                   console.log("All conversations sent to", authenticatedUser.username, "\n");
                 } else {
                   ws.send(JSON.stringify( {messageType: "noAuth"} ));
-                  console.log("No auth sent to", parsed.username);
+                  console.log("No auth sent to", authenticatedUser.username);
                 }
               }
             } catch (error) {
@@ -204,19 +240,28 @@ wss.on("connection", ws => {
             ws.send(JSON.stringify( {messageType: "noAuth"}));
             return;
           } else {
-            const currentContact = getUser.get(parsed.contactUsername);
-            if (currentContact !== undefined) {
-              const contactConversation = getConversation.get(authenticatedUser.username, currentContact.username, currentContact.username, authenticatedUser.username);
-              if (contactConversation !== undefined) {
-                const lastMessage = insertMessage.run(parsed.messageText, parsed.messageType, timeStamp, contactConversation.ID, authenticatedUser.username);
-                ws.send(JSON.stringify({ messageType: "messageConfirm", id: lastMessage.lastInsertRowid, messageTime: timeStamp }));
-                console.log("Received message id", parsed.id, "from", parsed.username, "message in database is:", lastMessage);
+            const currentConversationID = getConversationID.get(parsed.conversationID);
+            if (currentConversationID !== undefined) {
+              const participant = getConversationParticipant.get(currentConversationID.conversationID, authenticatedUser.username);
+              if (participant !== undefined) {
+                const lastMessage = insertMessage.run(parsed.messageText, parsed.messageType, timeStamp, authenticatedUser.username, currentConversationID.conversationID,);
+                const databaseMessage = getMessage.get(authenticatedUser.username, lastMessage.lastInsertRowid);
+                console.log("Received message from", parsed.username, ". Message in database is:", databaseMessage);
+                const payloadObject = JSON.stringify({
+                  messageType: "messageConfirm",
+                  id: lastMessage.lastInsertRowid,
+                  messageText: databaseMessage.messageText,
+                  messageTime: timeStamp,
+                  conversationID: currentConversationID.conversationID });
+                ws.send(payloadObject);
+                console.log(payloadObject, "sent to", authenticatedUser.username);
               } else {
+                ws.send(JSON.stringify( {messageType: "error", messageText: "User doesn't belong to conversation"} ));
                 console.log("User doesn't belong to conversation");
               }
             } else {
-              ws.send(JSON.stringify({ messageType: "error", messageText: "user not found"}));
-              console.log("You have no such contact", parsed.contactUsername);
+              ws.send(JSON.stringify( {messageType: "error", messageText: "Conversation not found"} ));
+              console.log("Conversation ", parsed.conversationID, " not found");
               return;
             }
           }
@@ -227,15 +272,8 @@ wss.on("connection", ws => {
             ws.send(JSON.stringify( {messageType: "noAuth"} ));
             return;
           } else {
-            const currentConversation = getConversation.get(authenticatedUser.username, parsed.contactUsername, parsed.contactUsername, authenticatedUser.username);
-              if (currentConversation === undefined) {
-                ws.send(JSON.stringify( {messageType: "error", messageText: "Conversation not found"} ));
-                console.log("Conversation not found");
-                break;
-              } else {
-                deleteMessage.run(parsed.id, currentConversation.ID, authenticatedUser.username);
-                console.log("Message removed", parsed.id);
-            }
+            deleteMessage.run(parsed.id, authenticatedUser.username);
+            console.log("Message removed", parsed.id);
           }
         }
         break;
@@ -244,15 +282,8 @@ wss.on("connection", ws => {
             ws.send(JSON.stringify( {messageType: "noAuth"} ));
             return;
           } else {
-            const currentConversation = getConversation.get(authenticatedUser.username, parsed.contactUsername, parsed.contactUsername, authenticatedUser.username);
-            if (currentConversation === undefined) {
-                ws.send(JSON.stringify( {messageType: "error", messageText: "Conversation not found"} ));
-                console.log("Conversation not found");
-                break;
-            } else {
-              updateMessage.run(parsed.messageText, parsed.id, currentConversation.ID, authenticatedUser.username);
-              console.log("Updated message id", parsed.id, "from", parsed.username);
-            }
+            updateMessage.run(parsed.messageText, parsed.id, authenticatedUser.username);
+            console.log("Updated message id", parsed.id, "from", parsed.username);
           }
         }
         break;
@@ -261,35 +292,104 @@ wss.on("connection", ws => {
             ws.send(JSON.stringify( {messageType: "noAuth"} ));
             return;
           } else {
-            console.log(parsed.username, "asks to update contacts with", parsed.contactUsername);
+            console.log(parsed.username, "asks to create new chat with", parsed.contactUsername);
             const existing = getUser.get(parsed.contactUsername);
             if (existing !== undefined) {
               if (existing.username === authenticatedUser.username) {
                 ws.send(JSON.stringify( {messageType: "noUser", messageText: "You can not add yourself as contact" }));
                 break;
               }
-              const exists = getConversation.get(authenticatedUser.username, parsed.contactUsername, authenticatedUser.username, parsed.contactUsername);
-              if (exists !== undefined) {
+              const existingConversation = getTwoUsersConversationID.get(authenticatedUser.username, parsed.contactUsername);
+              if (existingConversation !== undefined) {
                 ws.send(JSON.stringify( {messageType: "noUser", messageText: "Conversation already exists" }));
                 console.log("Conversation already exists");
                 break;
               } else {
-                insertConversation.run(authenticatedUser.username, parsed.contactUsername);
-                const allConversations = selectedConversations.all(authenticatedUser.username);
+                const newConversationID = insertConversationID.run();
+                insertConversationParticipants.run(authenticatedUser.username, newConversationID.lastInsertRowid);
+                insertConversationParticipants.run(parsed.contactUsername, newConversationID.lastInsertRowid);
+                insertConversationParticipantGroupKey.run(parsed.contactUsername, parsed.groupKey, newConversationID.lastInsertRowid);
+                insertConversationParticipantGroupKey.run(authenticatedUser.username, parsed.myGroupKey, newConversationID.lastInsertRowid);
+                const userData = getUserConversationsAndMessages(authenticatedUser.username);
                 const payloadObject = {
                   userRole: "user",
-                  messageType: "initialMessage",
+                  messageType: "userContact",
                   user: getUser.get(authenticatedUser.username),
-                  conversations: allConversations
+                  messages: userData
                 }
                 ws.send(JSON.stringify(payloadObject));
-                //ws.send(JSON.stringify( {messageType: "userContact", contactUsername: existing.username} ));
-                console.log( JSON.stringify({messageType: "userContact", username: existing.username}), "sent to", parsed.username);
+                console.log(payloadObject, "sent to", authenticatedUser.username);
               }
             } else {
               const errorMessage = "no such user \"" + `${parsed.contactUsername}` + "\"";
-              ws.send(JSON.stringify({ messageType: "noUser", "messageText": errorMessage }));
+              ws.send(JSON.stringify( {messageType: "noUser", messageText: errorMessage} ));
               console.log(errorMessage);
+            }
+          }
+        }
+        break;
+        case "getUserPublicKey": {
+          if (!authenticatedUser) {
+            ws.send(JSON.stringify( {messageType: "noAuth"} ));
+            return;
+          } else {
+            console.log(authenticatedUser.username, "asks for public key for", parsed.username);
+            const existing = getUser.get(parsed.username);
+            if (existing !== undefined) {
+              const userPublicKeyResult = getUserPublicKey.get(parsed.username);
+              ws.send(JSON.stringify( {messageType: "getUserPublicKey", username: parsed.username, publicKey: userPublicKeyResult.userPublicKey} ));
+              console.log(userPublicKeyResult, "sent to", authenticatedUser.username);
+            } else {
+              ws.send(JSON.stringify( {messageType: "error", messageText: `no such user ${parsed.username}`} ));
+              console.log(`no such user ${parsed.username}`);
+            }
+          }
+        }
+        break;
+        case "addGroupConversation": {
+          if (!authenticatedUser) {
+            ws.send(JSON.stringify( {messageType: "noAuth"} ));
+            return;
+          } else {
+            const arrayOfContactUsernames = [];
+            parsed.arrayOfContacts.forEach(contact => {
+              arrayOfContactUsernames.push(contact.username);
+            });
+            console.log(parsed.username, "asks to update contacts with", String(arrayOfContactUsernames));
+            let allValid = true;
+            for (const contact of parsed.arrayOfContacts) {
+              const existing = getUser.get(contact.username);
+              if (!existing) {
+                const errorMessage = "no such user \"" + `${contact.username}` + "\"";
+                console.log(errorMessage);
+                ws.send(JSON.stringify( {messageType: "noUser", messageText: errorMessage} ));
+                allValid = false;
+                break;
+              }
+            }
+            if (allValid) {
+              const newConversationID = insertConversationID.run();
+              insertConversationParticipants.run(authenticatedUser.username, newConversationID.lastInsertRowid);
+              insertConversationParticipantGroupKey.run(authenticatedUser.username, parsed.myGroupKey, newConversationID.lastInsertRowid);
+              parsed.arrayOfContacts.forEach(contact => {
+                insertConversationParticipants.run(contact.username, newConversationID.lastInsertRowid);
+                insertConversationParticipantGroupKey.run(contact.username, contact.groupKey, newConversationID.lastInsertRowid);
+              });
+              const conversationIDsParticipants = getParticipantsOfID.all(newConversationID.lastInsertRowid);
+              const conversationParticipants = [];
+              conversationIDsParticipants.forEach(participant => {
+                const participantUser = getUser.get(participant.username);
+                conversationParticipants.push( {username: participantUser.username, publicKey: participantUser.userPublicKey} );
+              });
+              const groupKey = getConversationKeyForUser.get(newConversationID.lastInsertRowid, authenticatedUser.username);
+              const conversationObject = {
+                messageType: "userContact",
+                conversationID: newConversationID.lastInsertRowid,
+                participants: conversationParticipants,
+                groupKey: groupKey.groupKey
+              }
+              ws.send(JSON.stringify(conversationObject));
+              console.log(conversationObject, "sent to", authenticatedUser.username);
             }
           }
         }
