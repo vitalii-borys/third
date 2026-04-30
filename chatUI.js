@@ -166,6 +166,7 @@ export class ChatUI {
                     resolve (this.callbacks.loadCrypto(registerPasswordInput.value, false));
                 });
                 newPromise.then(() => {
+                    this.username = this.registerUsernameInput.value;
                     this.callbacks.setUsername(this.registerUsernameInput.value);
                     this.callbacks.startRegistration(this.registerUsernameInput.value);
                     this.backupButton.disabled = false;
@@ -294,7 +295,7 @@ export class ChatUI {
             const messageJSON = JSON.stringify( {
                 messageText: packageData,
                 messageType: "message",
-                username: this.callbacks.getUsername(),
+                username: this.username,
                 conversationID: this.currentGroupID
             });
             //const enryptedKeys = await this.callbacks.getEncryptedKeysForContacts();
@@ -374,7 +375,7 @@ export class ChatUI {
         conversation.participants.forEach(participant => {
             chatDescription += participant.username + " ";
         });
-        if (conversation.participants.length === 1 && conversation.participants[0].username === this.callbacks.getUsername()) {
+        if (conversation.participants.length === 1 && conversation.participants[0].username === this.username) {
             newConversationDiv.textContent = "My notes";
         } else {
             newConversationDiv.textContent = chatDescription;
@@ -397,11 +398,6 @@ export class ChatUI {
             for (const messageData of currentMessages) {
                 await this.handleMessage(messageData);
             }
-            /* conversation.messages.forEach(async messageData => {
-                currentMessages.push({id: messageData.id, messageText: messageData.messageText, messageTime: messageData.messageTime});
-                this.handleMessage(messageData);
-            });
-            this.conversationMessages.set(conversation.conversationID, currentMessages); */
             console.log("this.conversationMessages is", this.conversationMessages);
             this.userInput.focus();
             console.log("this.currentGroupID is", this.currentGroupID, "this.currentGroupKey is", this.currentGroupKey);
@@ -430,7 +426,7 @@ export class ChatUI {
         const messageDayEl = document.createElement('div');
         const messageTimeEl = document.createElement('div');
         const messageDiv = document.createElement('div');
-        if (sender === this.callbacks.getUsername()) {
+        if (sender === this.username) {
             messageContainer.classList = "clientMessageContainer";
         } else {
             messageContainer.classList = "contactMessageContainer";
@@ -447,7 +443,7 @@ export class ChatUI {
             this.createContextMenu(e.pageX, e.pageY, id, messageDiv, messageTimestamp);
         });
         messageDiv.append(messageTextEl, messageDayEl, messageTimeEl);
-        if (sender !== this.callbacks.getUsername()) {
+        if (sender !== this.username) {
             const senderName = document.createElement('div');
             senderName.textContent = sender;
             senderName.classList = "senderName";
@@ -563,7 +559,6 @@ export class ChatUI {
     }
 
     setFormVisibility(event) {
-        console.log(event);
         if (event.type === "open") {
             this.connectionTitle.style.display = "none";
             const localUsername = this.callbacks.getUsername();
@@ -580,7 +575,6 @@ export class ChatUI {
     }
 
     clearInputs() {
-          //this.loginUsernameInput.value = "";
           this.loginPasswordInput.value = "";
           this.registerUsernameInput.value = "";
           this.registerPasswordInput.value = "";
@@ -621,6 +615,7 @@ export class ChatUI {
         if (document.getElementById('contactInputDiv')) {
             document.getElementById('contactInputDiv').remove();
         }
+        this.username = this.callbacks.getUsername();
         this.registerUsernameInput.value = "";
         this.registrationForm.style.display = "none";
         this.logInForm.style.display = "none";
@@ -685,8 +680,7 @@ export class ChatUI {
 
     async handleMessage(messageData) {
         const decryptedMessage = await this.callbacks.decryptMessage(this.currentGroupKey, messageData.messageText);
-        const currentMessage = this.createMessageElement(decryptedMessage.message, messageData.id, decryptedMessage.receivedTimestamp, messageData.sender);
-        console.log("currentMessage is", currentMessage)
+        this.createMessageElement(decryptedMessage.message, messageData.id, decryptedMessage.receivedTimestamp, messageData.sender);
         const encryptedPackages = this.callbacks.getEncryptedPackages();
         encryptedPackages[messageData.id] = {text: messageData.messageText};
         localStorage.setItem("encryptedPackages", JSON.stringify(encryptedPackages));
@@ -694,7 +688,6 @@ export class ChatUI {
     }
 
     addMessageToConversation(messageData) {
-        console.log("messageData is", messageData)
         const currentGroupKey = this.conversationKeys.get(messageData.conversationID);
         const currentMessages = this.conversationMessages.get(messageData.conversationID);
         const formattedMessage = {id: messageData.id, messageText: messageData.messageText, messageTime: messageData.messageTime};

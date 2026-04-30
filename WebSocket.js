@@ -56,7 +56,7 @@ db.exec(sql`
     FOREIGN KEY (senderUsername) REFERENCES users(username)
   )
 `);
-
+const activeClients = new Map();
 const ws = new WebSocketServer({ port: 8080 });
 console.log("WebSocket server listening on 8080");
 
@@ -95,7 +95,7 @@ const getUserConversationsAndMessages = (username) => {
       userMessages.push(message);
     });
     const groupKey = getConversationKeyForUser.get(conversation.conversationID, username);
-    console.log("groupKey is ", groupKey?.groupKey);
+    console.log("groupKey for", conversation.conversationID, "is ", groupKey?.groupKey.slice(0, 4));
     const conversationObject = {
       conversationID: conversation.conversationID,
       messages: userMessages,
@@ -219,8 +219,8 @@ ws.on("connection", ws => {
                     conversations: userData
                   }
                   ws.send(JSON.stringify(payloadObject));
-                  console.log(payloadObject, "is sent to", authenticatedUser.username);
-                  console.log("All conversations sent to", authenticatedUser.username, "\n");
+                  console.log("All conversations:", payloadObject, "are sent to", authenticatedUser.username);
+                  activeClients.set(authenticatedUser.username, ws);
                 } else {
                   ws.send(JSON.stringify( {messageType: "noAuth"} ));
                   console.log("No auth sent to", authenticatedUser.username);
@@ -254,7 +254,13 @@ ws.on("connection", ws => {
                   messageTime: timeStamp,
                   conversationID: currentConversationID.conversationID,
                   sender: authenticatedUser.username });
-                ws.send(payloadObject);
+                const participantsOfID = getParticipantsOfID.all(currentConversationID.conversationID);
+                participantsOfID.forEach(participant => {
+                  const clientWebSocket = activeClients.get(participant.username);
+                  if (clientWebSocket.readyState === WebSocket.OPEN) {
+                    clientWebSocket.send(payloadObject);
+                  }
+                });
                 console.log(payloadObject, "sent to", authenticatedUser.username);
               } else {
                 ws.send(JSON.stringify( {messageType: "error", messageText: "User doesn't belong to conversation"} ));
@@ -405,6 +411,9 @@ ws.on("connection", ws => {
   
   ws.on("close", () => {
     console.log("Client disconnected");
+    if (authenticatedUser) {
+      activeClients.delete(authenticatedUser.username);
+    }
   });
   
 });
