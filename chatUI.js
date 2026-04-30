@@ -415,7 +415,7 @@ export class ChatUI {
         }
     }
     
-    createMessageElement = (message, id, timestamp) => {
+    createMessageElement = (message, id, timestamp, sender) => {
         let messageTimestamp;
         if (timestamp === undefined) {
             messageTimestamp = new Date();
@@ -425,11 +425,17 @@ export class ChatUI {
         const messageTime = new Date(Number(messageTimestamp));
         const formatted = `${String(messageTime.getHours()).padStart(2, 0)}:${String(messageTime.getMinutes()).padStart(2, 0)}`;
         const dayName = this.days[messageTime.getDay()];
+        const messageContainer = document.createElement('div');
         const messageTextEl = document.createElement('div');
         const messageDayEl = document.createElement('div');
         const messageTimeEl = document.createElement('div');
         const messageDiv = document.createElement('div');
-        messageDiv.classList = "message";
+        if (sender === this.callbacks.getUsername()) {
+            messageContainer.classList = "clientMessageContainer";
+        } else {
+            messageContainer.classList = "contactMessageContainer";
+        }
+        messageDiv.classList = "messageDiv";
         messageTextEl.classList = "messageTextEl";
         messageDayEl.classList = "messageDayEl";
         messageTimeEl.classList = "messageTimeEl";
@@ -441,7 +447,15 @@ export class ChatUI {
             this.createContextMenu(e.pageX, e.pageY, id, messageDiv, messageTimestamp);
         });
         messageDiv.append(messageTextEl, messageDayEl, messageTimeEl);
-        this.userMessages.appendChild(messageDiv);
+        if (sender !== this.callbacks.getUsername()) {
+            const senderName = document.createElement('div');
+            senderName.textContent = sender;
+            senderName.classList = "senderName";
+            messageContainer.append(senderName);
+        }
+        messageContainer.append(messageDiv);
+        this.userMessages.appendChild(messageContainer);
+        return messageDiv;
     }
 
     createContextMenu (x, y, messageId, divToRemove, messageTimestamp) {
@@ -658,7 +672,7 @@ export class ChatUI {
         messageData.conversations.forEach(conversation => {
             const messageArray = [];
             conversation.messages.forEach(message => {
-                const formattedMessage = {id: message.id, messageText: message.messageText, messageTime: message.messageTime}
+                const formattedMessage = {id: message.id, messageText: message.messageText, messageTime: message.messageTime, sender: message.senderUsername}
                 messageArray.push(formattedMessage);
             });
             this.conversationMessages.set(conversation.conversationID, messageArray);
@@ -667,13 +681,12 @@ export class ChatUI {
         this.backupButton.disabled = false;
         this.saveButton.disabled = false;
         this.scrollToBottom();
-        console.log("this.conversationMessages is ", typeof this.conversationMessages, this.conversationMessages);
     }
 
     async handleMessage(messageData) {
-        console.log("messageData is", messageData);
         const decryptedMessage = await this.callbacks.decryptMessage(this.currentGroupKey, messageData.messageText);
-        this.createMessageElement(decryptedMessage.message, messageData.id, decryptedMessage.receivedTimestamp);
+        const currentMessage = this.createMessageElement(decryptedMessage.message, messageData.id, decryptedMessage.receivedTimestamp, messageData.sender);
+        console.log("currentMessage is", currentMessage)
         const encryptedPackages = this.callbacks.getEncryptedPackages();
         encryptedPackages[messageData.id] = {text: messageData.messageText};
         localStorage.setItem("encryptedPackages", JSON.stringify(encryptedPackages));

@@ -252,28 +252,54 @@ form button {
     overflow-y: auto;
     overflow-x: hidden;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
 }
-.message {
+.contactMessageContainer {
+    height: fit-content;
+    background-color: rgb(70, 70, 70);    
     border-radius: 5px;
     box-shadow: 2px 4px 5px rgb(46, 46, 46);
+    margin: 4px;
+    margin-right: 50px;
+    
+}
+.contactMessageContainer:first-child {
+    margin-top: auto;
+}
+.clientMessageContainer {
+    height: fit-content;
+    background-color: rgb(80, 76, 114);
+    border-radius: 5px;
+    box-shadow: 2px 4px 5px rgb(46, 46, 46);
+    margin: 4px;
+    margin-left: 50px;
+    
+}
+.clientMessageContainer:first-child {
+    margin-top: auto;
+}
+.contactMessageContainer:hover {
+    background-color: grey;
+}
+.clientMessageContainer:hover {
+    background-color: grey;
+}
+.messageDiv {
     align-items: center;
     display: flex;
     flex-direction: row;
     margin: 4px;
-    background-color: rgb(70, 70, 70);    
     font-size:x-large ;
 }
-.message:hover {
-    background-color: grey;
-}
-.message:first-child {
+.messageDiv:first-child {
     margin-top: auto;
 }
 .messageTextEl {
     padding-left: 0.3rem;
     padding-top: 0.1rem;
     padding-bottom: 0.1rem;
-    flex: 8;
+    flex: 13;
     overflow-wrap: anywhere;
     word-break: break-word;
 }
@@ -282,10 +308,15 @@ form button {
     font-size: medium;
 }
 .messageDayEl {
-    transform: translateX(2vw);
+    /* transform: translateX(2vw); */
     flex: 1;
     font-size: medium;
     width: 4vw;
+}
+.senderName {
+    margin: 2px;
+    font-size: large;
+    color: rgb(44, 0, 102);
 }
 
 #contextMenu {

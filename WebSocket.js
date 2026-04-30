@@ -252,7 +252,8 @@ ws.on("connection", ws => {
                   id: lastMessage.lastInsertRowid,
                   messageText: databaseMessage.messageText,
                   messageTime: timeStamp,
-                  conversationID: currentConversationID.conversationID });
+                  conversationID: currentConversationID.conversationID,
+                  sender: authenticatedUser.username });
                 ws.send(payloadObject);
                 console.log(payloadObject, "sent to", authenticatedUser.username);
               } else {
