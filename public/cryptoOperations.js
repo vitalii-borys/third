@@ -1,3 +1,16 @@
+let supportsBase64 = typeof Uint8Array.prototype.toBase64 === 'function';
+supportsBase64 = false;
+function toBase64(uint8Array) {
+  return supportsBase64 
+    ? uint8Array.toBase64()
+    : btoa(String.fromCharCode(...uint8Array));
+}
+
+function fromBase64(base64) {
+  return supportsBase64
+    ? Uint8Array.fromBase64(base64)
+    : Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+}
 
 export class CryptoVault {
     timestampLength = 8;
@@ -17,13 +30,13 @@ export class CryptoVault {
 
     async getEncryptedGroupKeysForContacts(usernamePublicKey) {
         const groupKeyBuffer = await this.generateGroupKey();
-        const keyString = new Uint8Array(groupKeyBuffer).toBase64();
+        const keyString = /* new Uint8Array(groupKeyBuffer). */toBase64(new Uint8Array(groupKeyBuffer));
         const encoder = new TextEncoder();
         const encodedGroupKey = encoder.encode(keyString);
         let encryptedGroupKeyString;
         if(usernamePublicKey !== undefined) {
 
-            const participantPublicKeyBuffer = Uint8Array.fromBase64(usernamePublicKey);
+            const participantPublicKeyBuffer = /* Uint8Array. */fromBase64(usernamePublicKey);
             const participantPublicKey = await window.crypto.subtle.importKey(
                 "spki",
                 participantPublicKeyBuffer,
@@ -37,7 +50,7 @@ export class CryptoVault {
                 participantPublicKey,
                 encodedGroupKey
             );
-            encryptedGroupKeyString = new Uint8Array(encryptedGroupKeyBuffer).toBase64();
+            encryptedGroupKeyString = /* new Uint8Array(encryptedGroupKeyBuffer). */toBase64(new Uint8Array(encryptedGroupKeyBuffer));
             console.log("encryptedGroupKeyString is", encryptedGroupKeyString);
         }
             
@@ -46,7 +59,7 @@ export class CryptoVault {
                 this.clientPublicKey,
                 encodedGroupKey
             );
-            const myEncryptedGroupKeyString = new Uint8Array(myEncryptedGroupKeyBuffer).toBase64();
+            const myEncryptedGroupKeyString = /* new Uint8Array(myEncryptedGroupKeyBuffer). */toBase64(new Uint8Array(myEncryptedGroupKeyBuffer));
             console.log("My encryptedGroupKeyString is", myEncryptedGroupKeyString);
         if (usernamePublicKey !== undefined) {
             return {encryptedGroupKeyString, myEncryptedGroupKeyString};
@@ -57,7 +70,7 @@ export class CryptoVault {
     }
 
     async decryptGroupKey(keyString) {
-        const groupKeyBuffer = Uint8Array.fromBase64(keyString);
+        const groupKeyBuffer = /* Uint8Array. */fromBase64(keyString);
         const decryptedGroupKeyBuffer = await window.crypto.subtle.decrypt(
             {name: "RSA-OAEP"},
             this.#clientPrivateKey,
@@ -65,7 +78,7 @@ export class CryptoVault {
         );
         const decoder = new TextDecoder;
         const decodedGroupKey = decoder.decode(decryptedGroupKeyBuffer);
-        const decodedKeyBuffer = Uint8Array.fromBase64(decodedGroupKey);
+        const decodedKeyBuffer = /* Uint8Array. */fromBase64(decodedGroupKey);
         const importedKey = await window.crypto.subtle.importKey(
             "raw",
             decodedKeyBuffer,
@@ -98,7 +111,7 @@ export class CryptoVault {
             this.#serverPrivateKey,
             encodedData
         );
-        signature = new Uint8Array(signature).toBase64();
+        signature = /* new Uint8Array(signature). */toBase64(new Uint8Array(signature));
         return signature;
     }
 
@@ -163,12 +176,12 @@ export class CryptoVault {
         packageData.set(additionalData, 0);
         packageData.set(this.#messageIv, this.timestampLength);
         packageData.set(ciphertextArray, this.timestampLength + this.ivLength);
-        const package64 = packageData.toBase64();
+        const package64 = /* packageData. */toBase64(packageData);
         return package64;
     }
 
     async decryptPackage(key, packageData) {
-        const packageToBytes = Uint8Array.fromBase64(packageData);
+        const packageToBytes = /* Uint8Array. */fromBase64(packageData);
         const receivedTimestampArray = packageToBytes.slice(0, this.timestampLength);
         const receivedTimestamp = this.#uint8ArrayToBigint(receivedTimestampArray);
         const receivedMessageIvArray = packageToBytes.slice(this.timestampLength, this.timestampLength + this.ivLength);
@@ -320,7 +333,7 @@ export class CryptoVault {
     }
 
     async loadKeysFromStorage() {
-        const publicKeyBuffer = Uint8Array.fromBase64(this.callbacks.getPublicKeyString());
+        const publicKeyBuffer = /* Uint8Array. */fromBase64(this.callbacks.getPublicKeyString());
         const publicKey = await crypto.subtle.importKey(
             "spki",
             publicKeyBuffer,

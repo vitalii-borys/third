@@ -117,7 +117,7 @@ const sessionCrypto = new CryptoVault({
   getOrCreateMessageIv: () => storageManager.getOrCreateMessageIv()
 });
 
-const wsManager = new WebSocketManager("ws://localhost:8080", {
+const wsManager = new WebSocketManager(`wss://${window.location.host/* "192.168.0.222:8080" */}`, {
   getEncryptedGroupKeysForContacts: async (usernamePublicKey) => sessionCrypto.getEncryptedGroupKeysForContacts(usernamePublicKey),
   getUsername: () => storageManager.getUsername(),
   onMessageReceived: (message) => sessionVault.onMessageReceived(message),
@@ -130,8 +130,8 @@ const wsManager = new WebSocketManager("ws://localhost:8080", {
   setUsername: (username) => storageManager.setUsername(username),
   loadCrypto: (userPassword, stayLoggedIn) => sessionCrypto.load(userPassword, stayLoggedIn),
   getPublicKeyString: () => storageManager.getPublicKeyString(),
-  serverPublicKey: () => storageManager.getServerPublicKey(),
+  getServerPublicKey: () => storageManager.getServerPublicKey(),
 });
-
+console.log(window.location.host);
 wsManager.connect();
 chatManager.scrollToBottom();

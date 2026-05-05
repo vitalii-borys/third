@@ -1,6 +1,58 @@
 import { WebSocketServer } from "ws";
 import Database from "better-sqlite3";
 import { randomBytes } from 'crypto';
+import { createServer } from "https";
+//import { readFile, readFileSync } from "fs";
+import { extname, resolve } from "path";
+import {readFile, readFileSync} from "fs";
+
+const certificate = readFileSync("./cert.pem");
+const certificateKey = readFileSync("./key.pem");
+const ROOT = resolve("./public");
+const mimeTypes = {
+  ".html": "text/html",
+  ".js":   "application/javascript",
+  ".css":  "text/css",
+  ".png":  "image/png",
+  ".json": "application/json",
+};
+
+const httpsServer = createServer({ cert: certificate, key: certificateKey},(req, res) => {
+    console.log("req.url is" + req.url);
+    let decodedUrl = null;
+    try {
+      decodedUrl = decodeURIComponent(req.url);
+    } catch (error) {
+      console.log("wrong decodedUrl is", decodedUrl);
+      res.writeHead(400);
+      res.end("Bad request");
+      console.log(error);
+      return;
+    }
+    const filePath = decodedUrl === "/" ? resolve(ROOT + "/index.html") : resolve(ROOT + decodedUrl);
+    if (!filePath.startsWith(ROOT)) {
+      res.writeHead(403);
+      res.end("Forbidden");
+      return;
+    }
+    const ext = extname(filePath);
+    const contentType = mimeTypes[ext] || "application/octet-stream";
+
+    readFile(filePath, (err, data) => {
+      if (err) {
+          res.writeHead(404);
+          res.end("Not found");
+          return;
+      }
+      res.writeHead(200, { "Content-Type": contentType });
+      res.end(data);
+    });
+});
+
+const activeClients = new Map();
+const ws = new WebSocketServer({ server: httpsServer });
+console.log("WebSocket server listening on 8080");
+httpsServer.listen(8080, () => console.log("https://192.168.0.222:8080/"));
 
 const db = new Database("database.db");
 
@@ -56,9 +108,6 @@ db.exec(sql`
     FOREIGN KEY (senderUsername) REFERENCES users(username)
   )
 `);
-const activeClients = new Map();
-const ws = new WebSocketServer({ port: 8080 });
-console.log("WebSocket server listening on 8080");
 
 const insertConversationParticipantGroupKey = db.prepare(sql `INSERT INTO conversationKeys (username, groupKey, conversationID) VALUES (?, ?, ?)`);
 const getConversationKeyForUser = db.prepare(sql `SELECT groupKey FROM conversationKeys WHERE conversationID = ? AND username = ?`);
@@ -95,7 +144,7 @@ const getUserConversationsAndMessages = (username) => {
       userMessages.push(message);
     });
     const groupKey = getConversationKeyForUser.get(conversation.conversationID, username);
-    console.log("groupKey for", conversation.conversationID, "is ", groupKey?.groupKey.slice(0, 4));
+    //console.log("groupKey for", conversation.conversationID, "is ", groupKey?.groupKey.slice(0, 4));
     const conversationObject = {
       conversationID: conversation.conversationID,
       messages: userMessages,
@@ -208,7 +257,7 @@ ws.on("connection", ws => {
                     users: getAllUsers.all()
                   };
                   ws.send(JSON.stringify(payloadObject));
-                  console.log(payloadObject, "is sent to", authenticatedUser.username);
+                  console.log("initialMessage is sent to", authenticatedUser.username);
                   console.log(authenticatedUser.username, "is authenticated as", authenticatedUser.userRole);
                 } else if (authenticatedUser.userRole === "user") {
                   const userData = getUserConversationsAndMessages(authenticatedUser.username);
@@ -219,7 +268,7 @@ ws.on("connection", ws => {
                     conversations: userData
                   }
                   ws.send(JSON.stringify(payloadObject));
-                  console.log("All conversations:", payloadObject, "are sent to", authenticatedUser.username);
+                  console.log("All conversations are sent to", authenticatedUser.username);
                   activeClients.set(authenticatedUser.username, ws);
                 } else {
                   ws.send(JSON.stringify( {messageType: "noAuth"} ));

@@ -1,3 +1,22 @@
+let supportsBase64 = typeof Uint8Array.prototype.toBase64 === 'function';
+supportsBase64 = false;
+/* const el = document.createElement('div');
+el.textContent = supportsBase64;
+el.style.backgroundColor = 'red';
+el.style.fontSize = '30px';
+document.body.appendChild(el); */
+function toBase64(uint8Array) {
+  return supportsBase64 
+    ? uint8Array.toBase64()
+    : btoa(String.fromCharCode(...uint8Array));
+}
+
+function fromBase64(base64) {
+  return supportsBase64
+    ? Uint8Array.fromBase64(base64)
+    : Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+}
+
 export class StorageManager {
     
     constructor() {
@@ -34,11 +53,11 @@ export class StorageManager {
     getOrCreateWrappingIv() {
         let wrappingIv;
         if (localStorage.getItem("wrappingIv") !== null) {
-            wrappingIv = Uint8Array.fromBase64(localStorage.getItem("wrappingIv"));
+            wrappingIv = /* Uint8Array. */fromBase64(localStorage.getItem("wrappingIv"));
             //console.log("WrappingIv from local storage is: ", wrappingIv);
         } else {
             wrappingIv = crypto.getRandomValues(new Uint8Array(this.ivLength));
-            localStorage.setItem("wrappingIv", wrappingIv.toBase64());
+            localStorage.setItem("wrappingIv", /* wrappingIv. */toBase64(wrappingIv));
             //console.log("WrappingIv ", wrappingIv, " stored in local storage: ", wrappingIv);
         }
         return wrappingIv;
@@ -47,7 +66,7 @@ export class StorageManager {
     getOrCreateMessageIv() {
         let messageIv;
         if (localStorage.getItem("messageIv") !== null) {
-            messageIv = Uint8Array.fromBase64(localStorage.getItem("messageIv"));
+            messageIv = /* Uint8Array. */fromBase64(localStorage.getItem("messageIv"));
             //console.log("MessageIv from local storage: ", messageIv);
         } else {
             //console.log("No messageIv in local storage");
@@ -56,26 +75,26 @@ export class StorageManager {
             messageIv = new Uint8Array(this.ivLength);
             messageIv.set(messageIvStart, 0);
             messageIv.set(messageIvEnd, messageIvStart.length);
-            localStorage.setItem("messageIv", messageIv.toBase64());
+            localStorage.setItem("messageIv", /* messageIv. */toBase64(messageIv));
             //console.log("messageIv ", messageIv, " stored in local storage.");
         }
         return messageIv;
     }
     
     saveMessageIv(ivBuffer) {
-        localStorage.setItem("messageIv", ivBuffer.toBase64());
+        localStorage.setItem("messageIv", /* ivBuffer. */toBase64(ivBuffer));
         //console.log("messageIv", ivBuffer, "stored in local storage.");
     }
 
     getOrCreateSalt() {
         let salt;
         if (localStorage.getItem("salt") !== null) {
-            salt = Uint8Array.fromBase64(localStorage.getItem("salt"));
+            salt = /* Uint8Array. */fromBase64(localStorage.getItem("salt"));
             //console.log("Salt from local storage: ", salt);
         } else {
             salt = crypto.getRandomValues(new Uint8Array(this.saltLength));
             //console.log("Salt :", salt);
-            var saltString = salt.toBase64();
+            var saltString = /* salt. */toBase64(salt);
             localStorage.setItem("salt", saltString);
             //console.log("Salt :", saltString, " stored in local storage.");
         }
@@ -84,7 +103,7 @@ export class StorageManager {
 
     getEncryptedWrappedKey() {
         if (localStorage.getItem("encryptedWrappedKey") !== null) {
-            const keyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedWrappedKey"));
+            const keyBuffer = /* Uint8Array. */fromBase64(localStorage.getItem("encryptedWrappedKey"));
             //console.log("Wrapped key buffer from local storage is: ", keyBuffer);
             return keyBuffer;
         } else {
@@ -94,14 +113,14 @@ export class StorageManager {
     }
 
     saveEncryptedWrappedKey(key) {
-        const keyString = new Uint8Array(key).toBase64();
+        const keyString = /* new Uint8Array(key). */toBase64(new Uint8Array(key));
         localStorage.setItem("encryptedWrappedKey", keyString);
         //console.log("Encrypted wrapped key: ", keyString, " written to local storage.");
     }
     
     getEncryptedSessionKey() {
         if (localStorage.getItem("encryptedSessionKey") !== null) {
-            const keyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedSessionKey"));
+            const keyBuffer = /* Uint8Array. */fromBase64(localStorage.getItem("encryptedSessionKey"));
             //console.log("Session key buffer from local storage is: ", keyBuffer);
             return keyBuffer;
         } else {
@@ -111,7 +130,7 @@ export class StorageManager {
     }
     
     saveEncryptedSessionKey(key) {
-        const keyString = new Uint8Array(key).toBase64();
+        const keyString = /* new Uint8Array(key). */toBase64(new Uint8Array(key));
         localStorage.setItem("encryptedSessionKey", keyString);
         //console.log("Encrypten session key: ", keyString, " written to local storage.");
     }
@@ -128,7 +147,7 @@ export class StorageManager {
     }
     
     savePublicKey(key) {
-        const keyString = new Uint8Array(key).toBase64();
+        const keyString = /* new Uint8Array(key). */toBase64(new Uint8Array(key));
         localStorage.setItem("publicKey", keyString);
         //console.log("Public key: ", keyString, " written to local storage.");
     }
@@ -136,7 +155,7 @@ export class StorageManager {
     getEncryptedPrivateKey() {
         let keyBuffer;
         if (localStorage.getItem("encryptedPrivateKey") !== null) {
-            keyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedPrivateKey"));
+            keyBuffer = /* Uint8Array. */fromBase64(localStorage.getItem("encryptedPrivateKey"));
             //console.log("Private key buffer from local storage is: ", keyBuffer);
             return keyBuffer;
         } else {
@@ -145,14 +164,14 @@ export class StorageManager {
     }
     
     saveEncryptedPrivateKey(key) {
-        const keyString = new Uint8Array(key).toBase64();
+        const keyString = /* new Uint8Array(key). */toBase64(new Uint8Array(key));
         localStorage.setItem("encryptedPrivateKey", keyString);
         //console.log("Encrypten private key: ", keyString, " written to local storage.");
     }
     
     getServerPublicKey() {
         if (localStorage.getItem("serverPublicKey") !== null) {
-            const keyBuffer = Uint8Array.fromBase64(localStorage.getItem("serverPublicKey"));
+            const keyBuffer = /* Uint8Array. */fromBase64(localStorage.getItem("serverPublicKey"));
             //console.log("Server public key buffer from local storage is: ", keyBuffer);
             return keyBuffer;
         } else {
@@ -161,7 +180,7 @@ export class StorageManager {
     }
     
     saveServerPublicKey(key) {
-        const keyString = new Uint8Array(key).toBase64();
+        const keyString = /* new Uint8Array(key). */toBase64(new Uint8Array(key));
         localStorage.setItem("serverPublicKey", keyString);
         //console.log("Server public key: ", keyString, " written to local storage.");
     }
@@ -169,7 +188,7 @@ export class StorageManager {
     getEncryptedServerPrivateKey() {
         let keyBuffer;
         if (localStorage.getItem("encryptedServerPrivateKey") !== null) {
-            keyBuffer = Uint8Array.fromBase64(localStorage.getItem("encryptedServerPrivateKey")); 
+            keyBuffer = /* Uint8Array. */fromBase64(localStorage.getItem("encryptedServerPrivateKey")); 
             //console.log("Encrypted server private key buffer from local storage is: ", keyBuffer);
             return keyBuffer;
         } else {
@@ -178,7 +197,7 @@ export class StorageManager {
     }
     
     saveEncryptedServerPrivateKey(key) {
-        const keyString = new Uint8Array(key).toBase64();
+        const keyString = /* new Uint8Array(key). */toBase64(new Uint8Array(key));
         localStorage.setItem("encryptedServerPrivateKey", keyString);
         //console.log("Encrypted server private key: ", keyString, " written to local storage.");
     }
@@ -186,7 +205,7 @@ export class StorageManager {
     getSessionWrappingKey() {
         let keyBuffer;
         if (sessionStorage.getItem("wrappingKey") !== null) {
-            keyBuffer = Uint8Array.fromBase64(sessionStorage.getItem("wrappingKey"));
+            keyBuffer = /* Uint8Array. */fromBase64(sessionStorage.getItem("wrappingKey"));
             //console.log("Session key buffer from local storage is: ", keyBuffer);
             return keyBuffer;
         } else {
@@ -196,7 +215,7 @@ export class StorageManager {
     }
     
     saveSessionWrappingKey(key) {
-        const keyString = new Uint8Array(key).toBase64();
+        const keyString = /* new Uint8Array(key). */toBase64(new Uint8Array(key));
         sessionStorage.setItem("wrappingKey", keyString);
         //console.log("Session key: ", keyString, " written to local storage.");
     }
@@ -264,7 +283,7 @@ export class StorageManager {
                 console.log("messageIvStart", messageIvStart, "messageIvEnd", messageIvEnd, "messageIv", messageIv);
                 messageIv.set(messageIvEnd, messageIvStart.length);
                 console.log("messageIv ", messageIv, messageIv.toString());
-                localStorage.setItem("messageIv", messageIv.toBase64());
+                localStorage.setItem("messageIv", /* messageIv. */toBase64(messageIv));
                 console.log("messageIv ", messageIv, " stored in local storage: ", messageIv.toString());
                 localStorage.setItem("encryptedSessionKey", importedBackup.encryptedSessionKey);
                 localStorage.setItem("publicKey", importedBackup.publicKey);

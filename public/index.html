@@ -10,8 +10,10 @@
 </head>
 <body>
     <h1 id="connectionTitle">Connecting to server...</h1>
+    <button id="showHideContacts" class="mobile-toggle">Contacts</button>
+    <button id="showHideBackup" class="mobile-toggle">Settings</button>
     <div id="forms">
-        <form id="logInForm">
+        <form id="logInForm" style="display: none;">
             <h1 id="welcome">Welcome</h1>
             <label id="loginUsernameInputLabel" for="loginUsernameInput">Username</label>
             <input readonly name="username" id="loginUsernameInput" type="text" autocomplete="username">
@@ -41,7 +43,14 @@
             <div id="contactDiv">
             </div>
     </div>
-    <div id="adminDiv">
+    <div id="chatDiv">
+        <div id="userMessages"></div>
+        <div id="inputField">
+            <textarea type="text" rows="1" id="user_input"></textarea>
+            <button type="button" id="saveButton">Send</button>
+        </div>
+    </div>
+    <div id="adminDiv" style="display: none;">
         <button id="adminButton" type="button">Show database</button>
         <table id="adminTable">
             <thead id="databaseThead">
@@ -59,13 +68,6 @@
         <button type="button" id="uploadBackupButton">Upload backup</button>
         <button type="button" id="backupButton">Get backup</button>
         <button type="button" id="logout">Log out</button>
-    </div>
-    <div id="chatDiv">
-        <div id="userMessages"></div>
-        <div id="inputField">
-            <textarea type="text" rows="1" id="user_input"></textarea>
-            <button type="button" id="saveButton">Send</button>
-        </div>
     </div>
 </body>
 <!-- <script type="module" src="test.js"></script> -->

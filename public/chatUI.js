@@ -42,6 +42,23 @@ export class ChatUI {
         this.backupControls = document.getElementById('backupControls');
         this.contactContainer = document.getElementById('contactContainer');
         this.connectionTitle = document.getElementById("connectionTitle");
+        this.showHideContacts = document.getElementById('showHideContacts');
+        this.showHideBackup = document.getElementById('showHideBackup');
+
+        this.showHideContacts.addEventListener('click', () => {
+            this.contactContainer.classList.toggle('active');
+            this.backupControls.classList.remove('active');
+        });
+
+        this.showHideBackup.addEventListener('click', () => {
+            this.backupControls.classList.toggle('active');
+            this.contactContainer.classList.remove('active');
+        });
+
+        document.getElementById('chatDiv').addEventListener('click', () => {
+            this.backupControls.classList.remove('active');
+            this.contactContainer.classList.remove('active');
+        });
 
         this.userInput.focus();
         
@@ -288,8 +305,11 @@ export class ChatUI {
                 this.showAlert("No conversation selected!");
                 return;
             }
-            this.saveButton.disabled = true;
             const data = this.userInput.value;
+            if (data.trim() === "") {
+                this.showAlert("Message is empty");
+                return;
+            }
             const packageData = await this.callbacks.encryptMessage(this.currentGroupKey, data);
             console.log("packageData is", packageData);
             const messageJSON = JSON.stringify( {
@@ -442,6 +462,26 @@ export class ChatUI {
             e.preventDefault();
             this.createContextMenu(e.pageX, e.pageY, id, messageDiv, messageTimestamp);
         });
+
+        // IOS
+        let pressTimer;
+        const longPressDuration = 500;
+        const startPress = (e) => {
+            clearTimeout(pressTimer);
+            pressTimer = setTimeout(() => {
+                let x = e.touches ? e.touches[0].pageX : e.pageX;
+                let y = e.touches ? e.touches[0].pageY : e.pageY;
+                this.createContextMenu(x, y, id, messageDiv, messageTimestamp);
+                // Haptic feedback on Android ( not for iOS yet)
+                if (navigator.vibrate) navigator.vibrate(50);
+            }, longPressDuration);
+        };
+        const cancelPress = () => {clearTimeout(pressTimer);};
+        messageDiv.addEventListener('touchstart', startPress, { passive: true });
+        messageDiv.addEventListener('touchend', cancelPress);
+        messageDiv.addEventListener('touchmove', cancelPress); 
+        messageDiv.addEventListener('touchcancel', cancelPress);
+
         messageDiv.append(messageTextEl, messageDayEl, messageTimeEl);
         if (sender !== this.username) {
             const senderName = document.createElement('div');
@@ -465,7 +505,7 @@ export class ChatUI {
         contextMenu.classList = 'contextMenu';
         contextMenu.style.position = 'absolute';
         contextMenu.style.left = `${x + 5}px`;
-        contextMenu.style.top = `${y + 5}px`;
+        contextMenu.style.top = `${y - 60}px`;
         updateButton.textContent = 'Edit';
         updateButton.style.position = 'relative';
         updateButton.style.backgroundColor = 'white';
@@ -561,6 +601,11 @@ export class ChatUI {
     setFormVisibility(event) {
         if (event.type === "open") {
             this.connectionTitle.style.display = "none";
+            const mobileToggle = document.querySelectorAll(".mobile-toggle");
+            mobileToggle.forEach((item) => {
+                item.classList.add("isHidden");
+            });
+            document.getElementById("chatDiv").style.display = "none";
             const localUsername = this.callbacks.getUsername();
             if (localUsername !== null) {
                 this.logInForm.style.display = "flex";
@@ -570,6 +615,10 @@ export class ChatUI {
                 this.registerUsernameInput.focus();
             }
         } else if (event.type === "close") {
+            const mobileToggle = document.querySelectorAll(".mobile-toggle");
+            mobileToggle.forEach((item) => {
+                item.classList.add("isHidden");
+            });
             this.connectionTitle.style.display = "flex";
         }
     }
@@ -619,6 +668,10 @@ export class ChatUI {
         this.registerUsernameInput.value = "";
         this.registrationForm.style.display = "none";
         this.logInForm.style.display = "none";
+        const mobileToggle = document.querySelectorAll(".mobile-toggle");
+            mobileToggle.forEach((item) => {
+                item.classList.remove("isHidden");
+            });
         this.chatDiv.style.display = "flex";
         this.backupControls.style.display = "flex";
         this.contactContainer.style.display = "flex";
@@ -680,6 +733,7 @@ export class ChatUI {
 
     async handleMessage(messageData) {
         const decryptedMessage = await this.callbacks.decryptMessage(this.currentGroupKey, messageData.messageText);
+        console.log(decryptedMessage);
         this.createMessageElement(decryptedMessage.message, messageData.id, decryptedMessage.receivedTimestamp, messageData.sender);
         const encryptedPackages = this.callbacks.getEncryptedPackages();
         encryptedPackages[messageData.id] = {text: messageData.messageText};

@@ -1,14 +1,76 @@
 body {
-    background: #555;
+    background: radial-gradient(at center, grey, #494949);
     margin: 0;
     display: flex;
-    flex-direction: column;
-    width: 100vw;
-    height: 100vh;
+    flex-direction: row;
+    justify-content: center;
+    width: 100dvw;
+    height: 100dvh;
 }
 *{
+    /* outline: 1px solid red; */
     margin: 0;
     padding: 0;
+}
+
+.mobile-toggle {
+    display: none;
+    position: fixed;
+    top: 1dvh;
+    z-index: 100;
+    padding: 12px;
+    border-radius: 0.6rem;
+    font-size: large;
+}
+
+@media screen and (max-width: 768px) {
+    .mobile-toggle {
+        display: flex !important;
+        align-items: center !important;
+        height: 2rem;
+    }
+    .mobile-toggle.isHidden {
+        display: none !important;
+    }
+    #showHideContacts {
+        left: 10px;
+    }
+    #showHideBackup {
+        right: 10px;
+    }
+    #chatDiv {
+        display: flex;
+        width: 100dvw;
+        height: 100dvh;
+    }
+    #contactContainer {
+        display: flex !important;
+        position: fixed;
+        left: 0;
+        top: 10dvh;
+        width: 40dvw;
+        height: fit-content;
+        z-index: 2;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease-in-out;
+    }
+
+    #backupControls {
+        display: flex !important;
+        position: fixed;
+        right: 0;
+        top: 10dvh;
+        width: 33dvw;
+        height: 25dvh !important;
+        z-index: 2;
+        transform: translateX(100%);
+        transition: transform 0.3s ease-in-out;
+    }
+
+    #contactContainer.active, 
+    #backupControls.active {
+        transform: translateX(0);
+    }
 }
 
 table {
@@ -45,7 +107,7 @@ form label {
     font-size: x-large;
 }
 form button {
-    border: 1px solidd black;
+    border: 1px solid black;
     border-radius: 5px;
     padding: 5px;
     margin-top: 5px;
@@ -55,7 +117,7 @@ form button {
 #connectionTitle {
     position: relative;
     align-self: center;
-    top: 50%;
+    /* top: 50%; */
 }
 
 #stayLoggedInLabel {
@@ -66,10 +128,10 @@ form button {
 #forms{
     display: flex;
     flex-direction: column;
-    position: relative;
+    /* position: relative;
     align-self: center;
     top: 50%;
-    transform: translateY(-50%);
+    transform: translateY(-50%); */
 }
 #registrationForm{
     display: none;
@@ -110,35 +172,36 @@ form button {
 }
 
 .contextMenu >*{
-    font-size: large;
-    padding: 0.2rem;
+    font-size: 20px;
+    padding: 3px;
     border: 1px solid black;
     border-radius: 4px;
 }
 
 #contactContainer{
     display: none;
+    flex: 1;
     flex-direction: column;
-    position: absolute;
-    left: 0px;
-    width: 25vw;
-    height: 100vh;
+    /* left: 0px; */
+    /* width: 25vw; */
+    height: fit-content;
     z-index: 2;
 }
 #contactControls{
     display: flex;
     flex-direction: column;
     position: relative;
-    left: 0px;
-    width: 25vw;
+    /* left: 0px; */
+    /* width: 25vw; */
 }
 #contactDiv {
+    background-color: gray;
     padding-left: 0.4rem;
     padding-right: 0.4rem;
     display: flex;
     flex-direction: column;
     position: relative;
-    left: 0px;
+    /* left: 0px; */
     /* width: 25vw; */
 }
 #contactInputDiv {
@@ -196,60 +259,51 @@ form button {
 #backupControls {
     display: none;
     flex-direction: column;
-    position: absolute;
+    flex: 1;
     align-items: end;
     right: 0px;
-    width: 25vw;
-    margin: 8px;
+    height: 100%;
 }
 #backupButton {
-    position: relative;
+    max-height: fit-content;
     margin: 1vw;
     padding: 0.3rem;
-    flex: 1;
     font-size: medium;
-    width: 18vw;
 }
 #uploadBackupButton {
-    position: relative;
+    max-height: fit-content;
     padding: 0.3rem;
     margin: 1vw;
-    flex: 1;
     font-size: medium;
-    width: 18vw;
 }
 #fileUpload {
-    position: relative;
+    max-width: 120px;
     margin: 1vw;
-    flex: 1;
-    width: 18vw;
 }
 #logout {
+    max-height: fit-content;
     position: relative;
     margin: 1vw;
     padding: 0.4rem;
     font-size: medium;
-    width: fit-content;
 }
 
 #chatDiv{
-    min-width: 340px;
     display: none;
     flex-direction: column;
-    flex: 20;
-    position: relative;
-    left: 50%;
+    flex: 15;
+    /* left: 50%;
     transform: translateX(-50%);
-    width: 50vw;
+    width: 50vw; */
     min-height: 0;
 }
 #userMessages {
     min-width: 340px;
     display: flex;
     flex-direction: column;
-    margin: 8px;
+    margin-bottom: 8px;
     flex: 20;
-    overflow-y: auto;
+    /* overflow-y: auto; */
     overflow-x: hidden;
     min-height: 0;
     display: flex;
@@ -291,6 +345,10 @@ form button {
     flex-direction: row;
     margin: 4px;
     font-size:x-large ;
+    /* For IOS */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
 }
 .messageDiv:first-child {
     margin-top: auto;

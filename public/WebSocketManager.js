@@ -22,7 +22,7 @@ export class WebSocketManager {
             const keyString = sessionStorage.getItem("wrappingKey");
             if (keyString !== null) {
                 this.username = this.callbacks.getUsername();
-                this.callbacks.loadCrypto(null, true);
+                await this.callbacks.loadCrypto(null, true);
                 try {
                     if (this.username !== undefined) {
                         const messageJSON = JSON.stringify( {messageType: "challenge", username: this.username} );
@@ -39,11 +39,12 @@ export class WebSocketManager {
             this.reconnectionAttempts = 0;
         }
 
-        this.ws.onclose = () => {
+        this.ws.onclose = (event) => {
             if (this.forceClose) {
                 console.log("Disconnected manually. Stopping reconnection.");
                 return;
             }
+            this.callbacks.setFormVisibility(event);
             this.callbacks.handleCloseCase();
             this.reconnectionAttempts++;
             const baseWait = Math.min(this.maxReconnectInterval, 3000 * Math.pow(2, this.reconnectionAttempts - 1));
@@ -79,8 +80,9 @@ export class WebSocketManager {
 
     async registerUser(username) {
         this.username = username; 
-        const serverKeyBuffer = await this.callbacks.serverPublicKey();
-        const encodedServerPublicKey = new Uint8Array(serverKeyBuffer).toBase64();
+        const serverKeyBuffer = await this.callbacks.getServerPublicKey();
+        const encodedServerPublicKey = localStorage.getItem("serverPublicKey");
+        //const encodedServerPublicKey = new Uint8Array(serverKeyBuffer).toBase64();
         const groupKey = await this.callbacks.getEncryptedGroupKeysForContacts();
         const myPublicKey = this.callbacks.getPublicKeyString();
         const messageJSON = JSON.stringify( {messageType: "register", username: username, serverPublicKey: encodedServerPublicKey, myGroupKey: groupKey, userPublicKey: myPublicKey });

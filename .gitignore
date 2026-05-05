@@ -5,3 +5,5 @@ cls.txt
 database.db
 server.bat
 server.ahk
+cert.pem
+key.pem
