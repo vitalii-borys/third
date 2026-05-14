@@ -20,10 +20,11 @@
             <label id="loginPasswordInputLabel" for="loginPasswordInput">Password</label>
             <input name="password" id="loginPasswordInput" type="password" autocomplete="current-password">
             <div id="checkboxDiv">
-                <label id="stayLoggedInLabel" for="stayLoggedIn">Stay logged in on reload?</label>
+                <label id="stayLoggedInLabel" for="stayLoggedIn">Stay logged in?</label>
                 <input id="stayLoggedIn" type="checkbox">
             </div>
             <button id="loginButton" type="submit">Log in</button>
+            <button id="removeData">Remove data from device</button>
         </form>
         <form id="registrationForm">
             <h1>Registration</h1>
@@ -33,7 +34,12 @@
             <input name="password" id="registerPasswordInput" type="password" autocomplete="new-password" required>
             <label id="registerPasswordInputConfirmLabel" for="registerPasswordInputConfirm">Confirm password</label>
             <input id="registerPasswordInputConfirm" type="password" autocomplete="new-password" required>
+            <div id="checkboxDiv">
+                <label id="registerStayLoggedInLabel" for="registerStayLoggedIn">Stay logged in?</label>
+                <input id="registerStayLoggedIn" type="checkbox">
+            </div>
             <button id="registrationSignupButton" type="button">Sign up</button>
+            <button type="button" id="registrationUploadBackupButton">Upload backup</button>
         </form>
     </div>
         <div id="contactContainer">
@@ -51,7 +57,6 @@
         </div>
     </div>
     <div id="adminDiv" style="display: none;">
-        <button id="adminButton" type="button">Show database</button>
         <table id="adminTable">
             <thead id="databaseThead">
                 <tr id="upperTr">
@@ -64,8 +69,8 @@
         </table>
     </div>
     <div id="backupControls">
-        <input type="file" id="fileUpload" accept="application/json">
-        <button type="button" id="uploadBackupButton">Upload backup</button>
+        <button id="adminButton" type="button">Show chats</button>
+        <input type="file" id="fileUpload" accept=".json">
         <button type="button" id="backupButton">Get backup</button>
         <button type="button" id="logout">Log out</button>
     </div>

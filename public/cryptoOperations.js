@@ -106,13 +106,20 @@ export class CryptoVault {
     async signData(data) {
         const encoder = new TextEncoder();
         const encodedData = encoder.encode(data);
-        let signature = await window.crypto.subtle.sign(
-            "RSASSA-PKCS1-v1_5",
-            this.#serverPrivateKey,
-            encodedData
-        );
-        signature = /* new Uint8Array(signature). */toBase64(new Uint8Array(signature));
-        return signature;
+        if (this.#serverPrivateKey !== undefined) {
+            try {
+                const signature = await window.crypto.subtle.sign(
+                "RSASSA-PKCS1-v1_5",
+                this.#serverPrivateKey,
+                encodedData
+            );
+            const challengeBuffer = /* new Uint8Array(signature). */toBase64(new Uint8Array(signature));
+            return challengeBuffer;
+            } catch {
+                this.callbacks.showAlert("Wrong password");
+                return;            
+            }
+        }
     }
 
     #bigintToUint8Buffer (bigInt) {
@@ -160,7 +167,6 @@ export class CryptoVault {
             additionalData = this.#bigintToUint8Buffer(BigInt(Date.now()));
         }
         this.#incrementIv(this.#messageIv);
-        console.log("Key 55 is", key);
         const ciphertext = await crypto.subtle.encrypt(
             {
                 name: "AES-GCM",
@@ -203,8 +209,8 @@ export class CryptoVault {
                 receivedTimestamp
             };
         return decryptedData;
-        } catch (e) {
-            console.log("Decryption failed with error: ", e);
+        } catch {
+            this.callbacks.showAlert("Wrong password");
             return;
         }
     }
@@ -275,9 +281,9 @@ export class CryptoVault {
                     ["encrypt", "decrypt"],
                 );
             return decryptedKey;
-            } catch (e) {
-                console.log("Decryption failed with error: ", e);
-                throw new Error("Wrong password");
+            } catch {
+                this.callbacks.showAlert("Wrong password");
+                return;
             }
         } else {
             const generatedKey = await window.crypto.subtle.generateKey(
@@ -356,9 +362,9 @@ export class CryptoVault {
             this.#wrappingKey,
             privateKeyBuffer
             );
-        } catch (e) {
-            console.log("Decryption failed with error: ", e);
-            throw new Error("Wrong password");
+        } catch {
+            this.callbacks.showAlert("Wrong password");
+            return;
         }
         const privateKey = await window.crypto.subtle.importKey(
             "pkcs8",
@@ -394,9 +400,9 @@ export class CryptoVault {
             this.#wrappingKey,
             serverPrivateKeyBuffer
             );
-        } catch (e) {
-            console.log("Decryption failed with error: ", e);
-            throw new Error("Wrong password");
+        } catch {
+            this.callbacks.showAlert("Wrong password");
+            return;
         }
         const serverPrivateKey = await window.crypto.subtle.importKey(
             "pkcs8",

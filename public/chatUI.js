@@ -7,6 +7,9 @@ export class ChatUI {
     currentGroupKey;
     conversationKeys = new Map();
     conversationMessages = new Map();
+    userNameRegex = /^[a-zA-Zа-яА-Я0-9_-]{3,20}$/u;
+    contactDivs = [];
+    lastActiveConversation;
 
     constructor (callbacks) {
         this.callbacks = callbacks;
@@ -17,7 +20,6 @@ export class ChatUI {
         this.userInput = document.getElementById('user_input');
         this.saveButton = document.getElementById('saveButton');
         this.backupButton = document.getElementById('backupButton');
-        this.uploadBackupButton = document.getElementById('uploadBackupButton');
         this.fileUpload = document.getElementById('fileUpload');
         this.contactControls = document.getElementById("contactControls");
         this.contactButton = document.getElementById('contactButton');
@@ -35,8 +37,11 @@ export class ChatUI {
         this.registerUsernameInputLabel = document.getElementById('registerUsernameInputLabel');
         this.registerPasswordInputLabel = document.getElementById('registerPasswordInputLabel');
         this.registerPasswordInputConfirmLabel = document.getElementById('registerPasswordInputConfirmLabel');
+        this.registrationUploadBackupButton = document.getElementById('registrationUploadBackupButton');
+        this.removeData = document.getElementById('removeData');
         this.logoutButton = document.getElementById('logout');
         this.stayLoggedIn = document.getElementById('stayLoggedIn');
+        this.registerStayLoggedIn = document.getElementById('registerStayLoggedIn');
         this.welcome = document.getElementById('welcome');
         this.chatDiv = document.getElementById('chatDiv');
         this.backupControls = document.getElementById('backupControls');
@@ -44,6 +49,20 @@ export class ChatUI {
         this.connectionTitle = document.getElementById("connectionTitle");
         this.showHideContacts = document.getElementById('showHideContacts');
         this.showHideBackup = document.getElementById('showHideBackup');
+
+        this.removeData.addEventListener('click', () => {
+            localStorage.clear();
+            window.location.reload();
+        });
+
+        this.registrationUploadBackupButton.addEventListener('click', () => {
+            this.fileUpload.click();
+        });
+        this.fileUpload.addEventListener('change', () => {
+            const file = this.fileUpload.files[0];
+            if (!file) {return;}
+            this.callbacks.setBackup(file);
+        });
 
         this.showHideContacts.addEventListener('click', () => {
             this.contactContainer.classList.toggle('active');
@@ -119,7 +138,8 @@ export class ChatUI {
                 this.registerUsernameInputLabel.style.color = 'black';
                 this.registerUsernameInput.style.backgroundColor = 'white';
                 return;
-            } else if (this.registerUsernameInput.value.length < 3) {
+            //} else if (this.registerUsernameInput.value.length < 3 || this.registerUsernameInput.value.length > 20) {
+            } else if (!this.userNameRegex.test(this.registerUsernameInput.value)) {
                 this.registerUsernameInput.style.backgroundColor = 'pink';
             } else {
                 this.registerUsernameInput.style.backgroundColor = 'white';
@@ -131,7 +151,7 @@ export class ChatUI {
         });
 
         this.loginPasswordInput.addEventListener('keypress', (event) => {
-            if (this.loginUsernameInput.value.length < 3 && event.key === "Enter") {
+            if (this.loginUsernameInput.value.length > 2 && this.loginUsernameInput.value.length < 21 && event.key === "Enter") {
                 this.loginButton.click();
             }
         });
@@ -180,7 +200,7 @@ export class ChatUI {
                 console.log("All data input is correct. Trying to register.");
                 e.preventDefault();
                 const newPromise = new Promise((resolve) => {
-                    resolve (this.callbacks.loadCrypto(registerPasswordInput.value, false));
+                    resolve (this.callbacks.loadCrypto(this.registerPasswordInput.value, this.registerStayLoggedIn.checked));
                 });
                 newPromise.then(() => {
                     this.username = this.registerUsernameInput.value;
@@ -188,7 +208,7 @@ export class ChatUI {
                     this.callbacks.startRegistration(this.registerUsernameInput.value);
                     this.backupButton.disabled = false;
                     this.saveButton.disabled = false;
-                    this.loginUsernameInput.value = "";
+                    //this.loginUsernameInput.value = "";
                     this.loginPasswordInput.value = "";
                     this.registerPasswordInput.value = "";
                     this.registerPasswordInputConfirm.value = "";
@@ -200,7 +220,6 @@ export class ChatUI {
             e.preventDefault();
             if (this.loginUsernameInput.value.length > 2 && this.loginPasswordInput.value.length > 5) {
                 this.username = this.loginUsernameInput.value;
-                let result;
                 const newPromise = new Promise((resolve) => {
                     resolve (this.callbacks.loadCrypto(this.loginPasswordInput.value, this.stayLoggedIn.checked));
                 });
@@ -211,7 +230,7 @@ export class ChatUI {
                         this.registrationForm.style.display = "none";
                         this.backupButton.disabled = false;
                         this.saveButton.disabled = false;
-                        this.loginUsernameInput.value = "";
+                        //this.loginUsernameInput.value = "";
                         this.loginPasswordInput.value = "";
                         this.registerUsernameInput.value = "";
                         this.registerPasswordInput.value = "";
@@ -236,7 +255,7 @@ export class ChatUI {
             }
         });
 
-        this.contactButton.addEventListener('click', async () => {
+        this.contactButton.addEventListener('click', async (event) => {
             if (document.getElementById('alertDiv')) {
                 document.getElementById('alertDiv').remove();
             }
@@ -256,6 +275,25 @@ export class ChatUI {
                 contactInputDiv.appendChild(contactInput);
                 contactInputDiv.appendChild(addContactButton);
                 contactInput.focus();
+                this.contactDivs = document.querySelectorAll(".conversationDiv");
+                contactInput.addEventListener('input', () => {
+                    if (contactInput.value.length === 0) {
+                        this.contactDivs?.forEach((div) => {
+                            div.style.display = "flex";
+                        });
+                    } else {
+                        this.contactDivs?.forEach((div, index) => {
+                            if (index === 0) {
+                                div.style.display = "flex";
+                                return;
+                            }
+                            div.style.display = "none";
+                            if (div.textContent.toLowerCase().includes(contactInput.value.toLowerCase())) {
+                                div.style.display = "flex";
+                            }
+                        });
+                    }
+                });
                 addContactButton.addEventListener('click', async () => {
                     const newContact = contactInput.value;
                     if (newContact === null || newContact.length === 0) {
@@ -263,7 +301,7 @@ export class ChatUI {
                         throw new Error("No contact provided");
                     }
                     const publicKey = await this.callbacks.getUserPublicKey(newContact);
-                    console.log("publicKey from server", publicKey)
+                    console.log("publicKey from server", publicKey);
                     const encryptedKeys = await this.callbacks.getEncryptedGroupKeysForContacts(publicKey);
                     console.log("encryptedKeys", encryptedKeys)
                     const messageJSON = JSON.stringify( {
@@ -277,21 +315,18 @@ export class ChatUI {
                 });
                 contactInput.addEventListener('keydown', (event) => {
                     if (event.key === "Enter") {
+                        this.contactDivs?.forEach(div => {div.style.display = "flex"});
                         addContactButton.click();
                     }
                 });
-                setTimeout(() => {
-                    document.addEventListener('click', (event) => {
-                        if (document.getElementById('contactControls').contains(event.target)) {
-                            return;
-                        } else {
-                            if (document.getElementById('alertDiv')) {
-                                document.getElementById('alertDiv').remove();
-                            }
-                            contactInputDiv.remove();
-                        }
-                    },);
-                }, 5);
+                const closeContactInput = (event) => {
+                    if (document.getElementById('contactControls').contains(event.target)) { return; }
+                    if (document.getElementById('alertDiv')) { document.getElementById('alertDiv').remove(); }
+                    this.contactDivs?.forEach(div => {div.style.display = "flex"});
+                    contactInputDiv.remove();
+                    document.removeEventListener('click', closeContactInput);
+                }
+                setTimeout(() => { document.addEventListener('click', closeContactInput) }, 5);
             }
         });
 
@@ -300,7 +335,6 @@ export class ChatUI {
 
         this.saveButton.addEventListener('click', async (e) => {
             e.preventDefault();
-            this.currentGroupID = this.getCurrentGroup();
             if (!this.currentGroupID) {
                 this.showAlert("No conversation selected!");
                 return;
@@ -349,11 +383,6 @@ export class ChatUI {
             }, 50);
         });
 
-        this.uploadBackupButton.addEventListener("click", () => {
-            const file = fileUpload.files[0];
-            this.callbacks.setBackup(file);
-        });
-
         this.days = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
         this.months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     }
@@ -384,51 +413,45 @@ export class ChatUI {
         }, 4000);
     }
 
-    async addConversation(conversation) {
-        console.log("conversationID is", conversation.conversationID, "conversation.participants is", conversation.participants, "group key is", conversation.groupKey.slice(0, 4));
-        const currentMessages = this.conversationMessages.get(conversation.conversationID);
-        const groupKey = await this.callbacks.decryptGroupKey(conversation.groupKey);
-        this.conversationKeys.set(conversation.conversationID, groupKey);
+    async addConversation(messageData) {
+        //console.log("messageDataID is", messageData.conversationID, "messageData.participants is", messageData.participants, "group key is", messageData.groupKey.slice(0, 4));
+        const groupKey = await this.callbacks.decryptGroupKey(messageData.groupKey);
+        this.conversationKeys.set(messageData.conversationID, groupKey);
         const newConversationDiv = document.createElement('div');
         newConversationDiv.classList = "conversationDiv";
         let chatDescription = "";
-        conversation.participants.forEach(participant => {
-            chatDescription += participant.username + " ";
+        messageData.participants.forEach(participant => {
+            if (participant.username !== this.username) {
+                chatDescription += participant.username + " ";
+            }
         });
-        if (conversation.participants.length === 1 && conversation.participants[0].username === this.username) {
+        if (messageData.participants.length === 1 && messageData.participants[0].username === this.username) {
             newConversationDiv.textContent = "My notes";
+            this.lastActiveConversation = newConversationDiv;
         } else {
             newConversationDiv.textContent = chatDescription;
         }
         newConversationDiv.addEventListener('contextmenu', (e) => {
             e.preventDefault();
         });
-        newConversationDiv.addEventListener('click', async () => {
-            if (this.currentGroupID === conversation.conversationID) {return;}
-            this.currentGroupID = conversation.conversationID;
-            this.currentGroupKey = this.conversationKeys.get(conversation.conversationID);
-            const c = this.contactDiv.children;
-            for (let child of c) {
-                child.classList.remove("activeConversation");
-                child.classList.add("conversationDiv");
-            }
-            newConversationDiv.classList = 'activeConversation';
+        newConversationDiv.addEventListener('click', async (event) => {
+            if (this.currentGroupID === messageData.conversationID) {return;}
+            this.lastActiveConversation.classList.remove("activeConversation");
+            this.lastActiveConversation.classList.add("conversationDiv");
+            this.lastActiveConversation = event.target;
+            this.lastActiveConversation.classList = 'activeConversation';
+            this.currentGroupID = messageData.conversationID;
+            this.currentGroupKey = this.conversationKeys.get(messageData.conversationID);
             this.userMessages.innerHTML = "";
-            const currentMessages = this.conversationMessages.get(conversation.conversationID) || [];
-            for (const messageData of currentMessages) {
-                await this.handleMessage(messageData);
+            const currentMessages = this.conversationMessages.get(messageData.conversationID) || [];
+            for (const message of currentMessages) {
+                await this.handleMessage(message);
             }
-            console.log("this.conversationMessages is", this.conversationMessages);
             this.userInput.focus();
-            console.log("this.currentGroupID is", this.currentGroupID, "this.currentGroupKey is", this.currentGroupKey);
+            console.log("this.currentGroupID is", this.currentGroupID);
         });
         this.contactDiv.appendChild(newConversationDiv);
-        if (document.getElementById('alertDiv')) {
-            document.getElementById('alertDiv').remove();
-        }
-        if (document.getElementById('contactInputDiv')) {
-            document.getElementById('contactInputDiv').remove();
-        }
+        return newConversationDiv;
     }
     
     createMessageElement = (message, id, timestamp, sender) => {
@@ -456,11 +479,14 @@ export class ChatUI {
         messageDayEl.classList = "messageDayEl";
         messageTimeEl.classList = "messageTimeEl";
         messageTextEl.textContent = message;
+        messageTextEl.id = id;
         messageDayEl.textContent = `${dayName}`;
         messageTimeEl.textContent = formatted;
         messageDiv.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            this.createContextMenu(e.pageX, e.pageY, id, messageDiv, messageTimestamp);
+            if (messageDiv.parentElement.classList.contains("clientMessageContainer")) {
+                this.createContextMenu(e.pageX, e.pageY, id, messageDiv, messageTimestamp);
+            }
         });
 
         // IOS
@@ -479,7 +505,7 @@ export class ChatUI {
         const cancelPress = () => {clearTimeout(pressTimer);};
         messageDiv.addEventListener('touchstart', startPress, { passive: true });
         messageDiv.addEventListener('touchend', cancelPress);
-        messageDiv.addEventListener('touchmove', cancelPress); 
+        //messageDiv.addEventListener('touchmove', cancelPress); 
         messageDiv.addEventListener('touchcancel', cancelPress);
 
         messageDiv.append(messageTextEl, messageDayEl, messageTimeEl);
@@ -526,67 +552,69 @@ export class ChatUI {
             updateButton.style.background = "white";
         });
         removeButton.addEventListener('click', () => {
-            const messageJSON = JSON.stringify({ id: messageId, username: this.callbacks.getUsername(), messageType: "delete" });
+            const messageJSON = JSON.stringify({ id: messageId, username: this.callbacks.getUsername(), messageType: "delete", conversationID: this.currentGroupID });
             console.log(messageJSON);
             this.callbacks.wsSend(messageJSON);
             contextMenu.remove();
-            divToRemove.remove();
         });
         updateButton.addEventListener('click', () => {
             const inputElement = document.createElement('textarea');
-            inputElement.classList = "editMessageInput";
-            console.log(divToRemove.style.fontSize);
-            /* inputElement.style.all = 'inherit';
-            inputElement.style.backgroundColor = 'white'; */
-            console.log(divToRemove.children[0].offsetHeight);
+            const sendButton = document.createElement('button');
+            inputElement.id = "editMessageInput";
             inputElement.value = divToRemove.children[0].innerText;
             inputElement.style.height = divToRemove.children[0].offsetHeight + 'px';
+            sendButton.id = "sendButton";
+            sendButton.textContent = "Send";
             const unUpdatedMessage = divToRemove.children[0]
             divToRemove.children[0].replaceWith(inputElement);
-            console.log(inputElement.offsetHeight);
-            console.log(inputElement.scrollHeight);
+            inputElement.after(sendButton);
             inputElement.focus();
 
             inputElement.addEventListener('input', () => {                
-                //inputElement.style.height = 'auto';
-                console.log(inputElement.scrollHeight);
                 inputElement.style.height = inputElement.scrollHeight + 'px'
             });
 
-            setTimeout(() => {
-                document.addEventListener('click', () => {
-                inputElement.replaceWith(unUpdatedMessage);
-                }, { once: true });
-            }, 5);
+            sendButton.addEventListener('click', async () => {
+                const updatedDiv = document.createElement("div");
+                updatedDiv.classList = "messageTextEl";
+                let newMessage;
+                try {
+                    newMessage = await this.callbacks.encryptMessage(this.currentGroupKey, inputElement.value, messageTimestamp);
+                } catch (e) {
+                    console.log("Error", e);
+                }
+                updatedDiv.textContent = inputElement.value;
+                updatedDiv.id = messageId;
+                inputElement.replaceWith(updatedDiv);
+                const messageJSON = JSON.stringify({ id: messageId, "messageText": newMessage, username: this.callbacks.getUsername(), messageType: "update", conversationID: this.currentGroupID });
+                console.log(messageJSON);
+                this.callbacks.wsSend(messageJSON);
+                sendButton.remove()
+            });
 
-            inputElement.addEventListener('keydown', async (e) => {
+            inputElement.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') {
                     inputElement.replaceWith(unUpdatedMessage);
                 }
                 if (e.key === 'Enter') {
-                    const encryptedPackages = this.callbacks.getEncryptedPackages();
-                    const decryptedMessageToEdit = await this.callbacks.decryptMessage(this.currentGroupKey, encryptedPackages[messageId].text);
-                    const messageToEditTimestamp = decryptedMessageToEdit.receivedTimestamp;
-                    const updatedDiv = document.createElement("div");
-                    updatedDiv.classList = "messageTextEl";
-                    let newMessage;
-                    try {
-                        console.log(inputElement.value, messageTimestamp);
-                        newMessage = await this.callbacks.encryptMessage(this.currentGroupKey, inputElement.value, messageTimestamp);
-                    } catch (e) {
-                        console.log("Error", e);
-                    }
-                    updatedDiv.textContent = inputElement.value;
-                    inputElement.replaceWith(updatedDiv);
-                    const messageJSON = JSON.stringify({ id: messageId, "messageText": newMessage, username: this.callbacks.getUsername(), messageType: "update" });
-                    console.log(messageJSON);
-                    this.callbacks.wsSend(messageJSON);
+                    sendButton.click();
                 }
             });
+            
+            setTimeout(() => {
+                document.addEventListener('click', (event) => {
+                    if (divToRemove.contains(event.target)) {
+                        return;
+                    } else {
+                        inputElement.replaceWith(unUpdatedMessage);
+                        sendButton.remove()
+                    }
+                });
+            }, 5);
             contextMenu.remove();
         });
         const closeMenu = (e) => {
-            if (!removeButton.contains(e.target)) {
+            if (!contextMenu.contains(e.target)) {
                 contextMenu.remove();
                 document.removeEventListener('click', closeMenu);
             }
@@ -595,7 +623,6 @@ export class ChatUI {
             document.addEventListener('click', closeMenu);
         }, 5);
         document.body.append(contextMenu);
-        return removeButton;
     }
 
     setFormVisibility(event) {
@@ -633,37 +660,17 @@ export class ChatUI {
     handleUsernameAvailability(messageData) {
         if (!messageData.available) {
             this.usernameAvailable = false;
-            this.registerUsernameInputLabel.textContent = `Username ${messageData.username} is not available`;
+            this.registerUsernameInputLabel.textContent = `Username ${messageData.username + " " + messageData.messageText}`;
             this.registerUsernameInputLabel.style.color = 'pink';
         } else {
             this.usernameAvailable = true;
-            this.registerUsernameInputLabel.textContent = `Username ${messageData.username} is available`;
+            this.registerUsernameInputLabel.textContent = `Username ${messageData.username + " " + messageData.messageText}`;
             this.registerUsernameInputLabel.style.color = 'lightgreen';
         }
         console.log(messageData);
     }
 
-    handleNoUserCase(messageData) {
-        console.log(messageData);
-        let alertDiv = document.getElementById('alertDiv');
-        if (alertDiv === null) {
-            const alertDiv = document.createElement('div');
-            alertDiv.textContent = messageData.messageText;
-            alertDiv.id = "alertDiv";
-            this.contactControls.appendChild(alertDiv);
-        } else {
-            const alertDiv = document.getElementById('alertDiv');
-            alertDiv.textContent = messageData.messageText;
-        }
-    }
-
-    handleInitialCase(messageData) {
-        if (document.getElementById('alertDiv')) {
-            document.getElementById('alertDiv').remove();
-        }
-        if (document.getElementById('contactInputDiv')) {
-            document.getElementById('contactInputDiv').remove();
-        }
+    async handleInitialCase(messageData) {
         this.username = this.callbacks.getUsername();
         this.registerUsernameInput.value = "";
         this.registrationForm.style.display = "none";
@@ -672,39 +679,60 @@ export class ChatUI {
             mobileToggle.forEach((item) => {
                 item.classList.remove("isHidden");
             });
-        this.chatDiv.style.display = "flex";
-        this.backupControls.style.display = "flex";
-        this.contactContainer.style.display = "flex";
-
-        if (messageData.userRole === "admin") {
+        
+        if (messageData.userRole === "admin") {            
+            const secureHTML = (text) => {
+                return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+            }
             this.#role = "admin";
             console.log(this.#role, "is yor role");            
+            const adminDiv = document.getElementById("adminDiv");
             const adminbutton = document.getElementById("adminButton");
-            adminbutton.style.display = "flex";
             const adminTable = document.getElementById("adminTable");
             const adminTableBody = document.getElementById("adminTableBody");
+            adminDiv.style.display = "flex";
+            adminbutton.style.display = "block";
+            adminTable.style.display = "block";
+            adminTableBody.style.display = "block";
+            this.contactContainer.style.display = "none";
+            this.chatDiv.style.display = "none";
+            this.backupControls.style.display = "flex";
+            adminTableBody.innerHTML = "";
+            let row;
+            messageData.users.forEach(user => {
+                //const timestamp = new Date(message.messageTime);
+                //const formattedTimestamp = `${String(timestamp.getDate())} ${String(this.months[timestamp.getMonth()])} ${String(timestamp.getHours()).padStart(2, 0)}:${String(timestamp.getMinutes()).padStart(2, 0)}`
+                row =  `<tr><th>${secureHTML(user.username)}</th><td>${secureHTML(user.userRole)}</td><td>${"formattedTimestamp"}</td></tr>`
+                adminTableBody.innerHTML += row;
+            });
             adminbutton.addEventListener('click', () => {
                 if (adminbutton.textContent === "Show database") {
-                    adminbutton.textContent = "Hide database";
+                    adminbutton.textContent = "Show chats";
+                    this.contactContainer.style.display = "none";
+                    this.chatDiv.style.display = "none";
+                    adminDiv.style.display = "flex";
                     adminTable.style.display = "block";
                 } else {
-                    adminTableBody.innerHTML = ""; // will need to change to textContent
+                    adminDiv.style.display = "none";
+                    //adminTableBody.innerHTML = ""; // will need to change to textContent
                     adminbutton.textContent = "Show database";
                     adminTable.style.display = "none";
+                    this.chatDiv.style.display = "flex";
+                    this.contactContainer.style.display = "flex";
                 }
                 if (this.#role === "admin") {
                     adminTableBody.innerHTML = "";
                     let row;
                     messageData.users.forEach(user => {
-                    messageData.allMessages.forEach(message => {
-                        if (message.username === user.username) {
-                            console.log(message.username);
-                            const timestamp = new Date(message.messageTime);
-                            const formattedTimestamp = `${String(timestamp.getDate())} ${String(this.months[timestamp.getMonth()])} ${String(timestamp.getHours()).padStart(2, 0)}:${String(timestamp.getMinutes()).padStart(2, 0)}`
-                            row =  `<tr><th>${user.username}</th><td>${user.userRole}</td><td>${formattedTimestamp}</td></tr>`
-                        }
-                    });
-                    adminTableBody.innerHTML += row;
+                        //const timestamp = new Date(message.messageTime);
+                        //const formattedTimestamp = `${String(timestamp.getDate())} ${String(this.months[timestamp.getMonth()])} ${String(timestamp.getHours()).padStart(2, 0)}:${String(timestamp.getMinutes()).padStart(2, 0)}`
+                        row =  `<tr><th>${secureHTML(user.username)}</th><td>${secureHTML(user.userRole)}</td><td>${"formattedTimestamp"}</td></tr>`
+                        adminTableBody.innerHTML += row;
                     });
                 } else if (this.#role === "user") {
                     console.log("You are user");
@@ -714,18 +742,26 @@ export class ChatUI {
             });
         } else if (messageData.userRole === "user") {
             this.#role = "user";
+            this.chatDiv.style.display = "flex";
+            this.backupControls.style.display = "flex";
+            this.contactContainer.style.display = "flex";
         }
         this.userMessages.innerHTML = "";
         this.contactDiv.innerHTML = "";
-        messageData.conversations.forEach(conversation => {
+        for (const conversation of messageData.conversations) {
             const messageArray = [];
             conversation.messages.forEach(message => {
-                const formattedMessage = {id: message.id, messageText: message.messageText, messageTime: message.messageTime, sender: message.senderUsername}
+                const formattedMessage = {
+                    id: message.id,
+                    messageText: message.messageText,
+                    messageTime: message.messageTime,
+                    sender: message.senderUsername
+                }
                 messageArray.push(formattedMessage);
             });
             this.conversationMessages.set(conversation.conversationID, messageArray);
-            this.addConversation(conversation);
-        });
+            await this.addConversation(conversation);
+        }
         this.backupButton.disabled = false;
         this.saveButton.disabled = false;
         this.scrollToBottom();
@@ -733,22 +769,90 @@ export class ChatUI {
 
     async handleMessage(messageData) {
         const decryptedMessage = await this.callbacks.decryptMessage(this.currentGroupKey, messageData.messageText);
-        console.log(decryptedMessage);
         this.createMessageElement(decryptedMessage.message, messageData.id, decryptedMessage.receivedTimestamp, messageData.sender);
-        const encryptedPackages = this.callbacks.getEncryptedPackages();
-        encryptedPackages[messageData.id] = {text: messageData.messageText};
-        localStorage.setItem("encryptedPackages", JSON.stringify(encryptedPackages));
         this.scrollToBottom();
     }
 
-    addMessageToConversation(messageData) {
-        const currentGroupKey = this.conversationKeys.get(messageData.conversationID);
+    async addMessageToConversation(messageData) {
         const currentMessages = this.conversationMessages.get(messageData.conversationID);
-        const formattedMessage = {id: messageData.id, messageText: messageData.messageText, messageTime: messageData.messageTime};
+        const formattedMessage = {
+            id: messageData.id,
+            messageText: messageData.messageText,
+            messageTime: messageData.messageTime,
+            sender: messageData.sender
+        }
         currentMessages.push(formattedMessage);
         this.conversationMessages.set(messageData.conversationID, currentMessages);
-        console.log(formattedMessage, "written to conversation", messageData.conversationID);
-        this.handleMessage(messageData);
+        if (this.currentGroupID === messageData.conversationID) {
+            await this.handleMessage(messageData);
+        }
+    }
+
+    async updateMessage(messageData) {
+        const messages = this.conversationMessages.get(messageData.conversationID);
+        if (messages) {
+            const message = messages.find(m => m.id === messageData.id);
+            if (message) {
+                message.messageText = messageData.messageText;
+            }
+        }
+        if (this.currentGroupID === messageData.conversationID) {
+            const divToUpdate = document.getElementById(messageData.id);
+            const decryptedMessage = await this.callbacks.decryptMessage(this.currentGroupKey, messageData.messageText);
+            divToUpdate.textContent = decryptedMessage.message;
+        }
+    }
+
+    removeMessage(messageData) {
+        if (this.currentGroupID === messageData.conversationID) {
+            const divToRemove = document.getElementById(messageData.id).parentElement.parentElement;
+            divToRemove.remove();
+        }
+        const messages = this.conversationMessages.get((messageData.conversationID));
+        if (messages) {
+            this.conversationMessages.set(
+                messageData.conversationID,
+                messages.filter(m => m.id !== messageData.id)
+            );
+        }
+    }
+
+    async confirmGroupChat(messageData) {
+        console.log("messageDataID is", messageData.conversationID, "messageData.participants is", messageData.participants, "group key is", messageData.groupKey.slice(0, 4));
+        this.conversationMessages.set(messageData.conversationID, []);
+        const groupKey = await this.callbacks.decryptGroupKey(messageData.groupKey);
+        this.conversationKeys.set(messageData.conversationID, groupKey);
+        const newConversationDiv = document.createElement('div');
+        newConversationDiv.classList = "conversationDiv";
+        let chatDescription = "";
+        messageData.participants.forEach(participant => {
+            if (participant.username !== this.username) {
+                chatDescription += participant.username + " ";
+            }
+        });
+        newConversationDiv.textContent = chatDescription;
+        newConversationDiv.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
+        newConversationDiv.addEventListener('click', async (event) => {
+            this.lastActiveConversation.classList.remove('activeConversation');
+            this.lastActiveConversation.classList.add('conversationDiv');
+            this.lastActiveConversation = event.target;
+            this.lastActiveConversation.classList = 'activeConversation';
+            this.currentGroupID = messageData.conversationID;
+            this.currentGroupKey = this.conversationKeys.get(messageData.conversationID);
+            this.userMessages.innerHTML = "";
+            const currentMessages = this.conversationMessages.get(messageData.conversationID) || [];
+            for (const message of currentMessages) {
+                await this.handleMessage(message);
+            }
+            console.log("this.conversationMessages is", this.conversationMessages);
+            this.userInput.focus();
+            console.log("this.currentGroupID is", this.currentGroupID, "this.currentGroupKey is", this.currentGroupKey);
+        });
+        this.contactDiv.appendChild(newConversationDiv);
+        this.contactDivs = document.querySelectorAll(".conversationDiv");
     }
 
     handleCloseCase() {

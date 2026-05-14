@@ -20,7 +20,6 @@ function fromBase64(base64) {
 export class StorageManager {
     
     constructor() {
-        this.encryptedPackages = this.initPackages();
         this.ivLength = 12;
         this.saltLength = 16;
     }
@@ -34,20 +33,6 @@ export class StorageManager {
     setUsername(currentUsername) {
         localStorage.setItem("username", currentUsername);
         console.log(currentUsername, "written to local storage");
-    }
-
-    initPackages() {
-        if (localStorage.getItem("encryptedPackages") === null) {
-            localStorage.setItem("encryptedPackages", JSON.stringify( {0: {text: ""}} ));
-            this.encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
-            //console.log("No encrypted packages in local storage. Empty ", this.#encryptedPackages, " created.");
-        }
-    }
-
-    getEncryptedPackages() {
-        this.encryptedPackages = JSON.parse(localStorage.getItem("encryptedPackages"));
-        //console.log("encryptedPackages from local storage is: ", this.encryptedPackages);
-        return this.encryptedPackages;
     }
 
     getOrCreateWrappingIv() {
@@ -252,12 +237,15 @@ export class StorageManager {
         if (StorageManager.isAvailable("localStorage")) {
             const backupJSON = {
                 "encryptedPackages": this.getPackages(),
+                "encryptedPrivateKey": localStorage.getItem("encryptedPrivateKey"),
+                "encryptedServerPrivateKey": localStorage.getItem("encryptedServerPrivateKey"),
+                "encryptedSessionKey": localStorage.getItem("encryptedSessionKey"),
                 "encryptedWrappedKey": localStorage.getItem("encryptedWrappedKey"),
                 "messageIv": localStorage.getItem("messageIv"),
-                "encryptedSessionKey": localStorage.getItem("encryptedSessionKey"),
                 "publicKey": localStorage.getItem("publicKey"),
-                "encryptedPrivateKey": localStorage.getItem("encryptedPrivateKey"),
                 "salt": localStorage.getItem("salt"),
+                "serverPublicKey": localStorage.getItem("serverPublicKey"),
+                "username": localStorage.getItem("username"),
                 "wrappingIv": localStorage.getItem("wrappingIv")
             }
             return backupJSON;
@@ -274,22 +262,17 @@ export class StorageManager {
                 importedBackup = JSON.parse(reader.result);
                 console.log("importedBackup", importedBackup);
                 localStorage.setItem("encryptedPackages", JSON.stringify(importedBackup.encryptedPackages));
-                localStorage.setItem("encryptedWrappedKey", importedBackup.encryptedWrappedKey);
-                console.log("this.ivLength", this.ivLength);
-                const messageIvStart = crypto.getRandomValues(new Uint8Array(this.ivLength - 4));
-                const messageIvEnd = new Uint8Array(4).fill(0);
-                const messageIv = new Uint8Array(this.ivLength);
-                messageIv.set(messageIvStart, 0);
-                console.log("messageIvStart", messageIvStart, "messageIvEnd", messageIvEnd, "messageIv", messageIv);
-                messageIv.set(messageIvEnd, messageIvStart.length);
-                console.log("messageIv ", messageIv, messageIv.toString());
-                localStorage.setItem("messageIv", /* messageIv. */toBase64(messageIv));
-                console.log("messageIv ", messageIv, " stored in local storage: ", messageIv.toString());
-                localStorage.setItem("encryptedSessionKey", importedBackup.encryptedSessionKey);
-                localStorage.setItem("publicKey", importedBackup.publicKey);
                 localStorage.setItem("encryptedPrivateKey", importedBackup.encryptedPrivateKey);
+                localStorage.setItem("encryptedServerPrivateKey", importedBackup.encryptedServerPrivateKey);
+                localStorage.setItem("encryptedSessionKey", importedBackup.encryptedSessionKey);
+                localStorage.setItem("encryptedWrappedKey", importedBackup.encryptedWrappedKey);
+                this.getOrCreateMessageIv();
+                localStorage.setItem("publicKey", importedBackup.publicKey);
                 localStorage.setItem("salt", importedBackup.salt);
+                localStorage.setItem("serverPublicKey", importedBackup.serverPublicKey);
+                localStorage.setItem("username", importedBackup.username);
                 localStorage.setItem("wrappingIv", importedBackup.wrappingIv);
+                window.location.reload();
             };
         reader.readAsText(file);
     }

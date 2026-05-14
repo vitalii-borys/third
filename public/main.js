@@ -36,10 +36,6 @@ class MainVault {
             this.callbacks.showAlert(messageData.messageText);
         }
         break;
-        case "noUser": {
-            this.callbacks.handleNoUserCase(messageData);
-        }
-        break;
         case "initialMessage": {
             localStorage.setItem("username", this.username);
             this.callbacks.handleInitialCase(messageData);
@@ -49,15 +45,25 @@ class MainVault {
             this.callbacks.addMessageToConversation(messageData);
         }
         break;
+        case "messageUpdate": {
+            this.callbacks.updateMessage(messageData);
+        }
+        break;
+        case "removeMessage": {
+            this.callbacks.removeMessage(messageData);
+        }
+        break;
         case "userContact": {
-            this.callbacks.addConversation(messageData);
+            this.callbacks.confirmGroupChat(messageData);
         }
         break;
         case "auth": {
             this.username = this.callbacks.getUsername();
             const signatureForServer = await this.callbacks.signData(messageData.messageText);
-            const messageJSON = JSON.stringify( {messageType: "auth", messageText: signatureForServer, username: this.username });
-            this.callbacks.wsSend(messageJSON);
+            if (signatureForServer !== undefined) {
+              const messageJSON = JSON.stringify( {messageType: "auth", messageText: signatureForServer, username: this.username });
+              this.callbacks.wsSend(messageJSON);
+            }
         }
         break;
       }
@@ -70,11 +76,13 @@ const sessionVault = new MainVault({
   handleInitialCase: (messageData) => chatManager.handleInitialCase(messageData),
   handleMessage: (messageData) => chatManager.handleMessage(messageData),
   addConversation: (messageData) => chatManager.addConversation(messageData),
+  confirmGroupChat: (messageData) => chatManager.confirmGroupChat(messageData),
   addMessageToConversation: (messageData) => chatManager.addMessageToConversation(messageData),
+  updateMessage: (messageData) => chatManager.updateMessage(messageData),
+  removeMessage: (messageData) => chatManager.removeMessage(messageData),
   wsSend: (messageJSON) => wsManager.ws.send(messageJSON),
   signData: (messageData) => sessionCrypto.signData(messageData),
   getUsername: () => storageManager.getUsername(),
-  handleNoUserCase: (messageData) =>chatManager.handleNoUserCase(messageData),
   handleUsernameAvailability: (messageData) => chatManager.handleUsernameAvailability(messageData)
 });
 
@@ -88,15 +96,16 @@ const chatManager = new ChatUI({
   setUsername: (username) => storageManager.setUsername(username),
   decryptMessage: async (key, text) => sessionCrypto.decryptPackage(key, text),
   encryptMessage: (key, text, timestamp) => sessionCrypto.encryptPackage(key, text, timestamp),
-  getEncryptedPackages: () => storageManager.getEncryptedPackages(),
   wsSend: (messageJSON) => wsManager.ws.send(messageJSON),
   loadCrypto: (password, stayLoggedIn) => sessionCrypto.load(password, stayLoggedIn),
   startRegistration: (username) => wsManager.registerUser(username),
   getBackup: () => storageManager.getBackupData(),
-  setBackup: (file) => storageManager.setBackupData(file)
+  setBackup: (file) => storageManager.setBackupData(file),
+  getOrCreateMessageIv: () => storageManager.getOrCreateMessageIv()
 });
 
 const sessionCrypto = new CryptoVault({
+  showAlert: (text) => chatManager.showAlert(text),
   getCurrentGroup: () => chatManager.getCurrentGroup(),
   getSessionWrappingKey: () => storageManager.getSessionWrappingKey(),
   saveSessionWrappingKey: (key) => storageManager.saveSessionWrappingKey(key),
